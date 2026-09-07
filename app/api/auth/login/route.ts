@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { isSafeText, isUsername } from "@/lib/validation";
+import { isEmail, isSafeText, isUsername } from "@/lib/validation";
 
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -16,14 +16,18 @@ export async function POST(request: NextRequest) {
   if (!rate.allowed) return NextResponse.json({ error: "Too many sign-in attempts. Try again later." }, { status: 429, headers: { "Retry-After": String(rate.retryAfter) } });
   try {
     const body = await request.json();
-    const username = typeof body?.username === "string" ? body.username.trim().toLowerCase() : "";
+    const identifier = typeof body?.username === "string" ? body.username.trim().toLowerCase() : "";
     const password = body?.password;
-    if (!isUsername(username) || !isSafeText(password, 128, true)) throw new Error("Invalid credentials.");
-    const service = serviceClient();
-    const { data: profile, error: profileError } = await service.from("user_profiles").select("email, is_disabled").eq("username", username).maybeSingle();
-    if (profileError || !profile || profile.is_disabled || !profile.email) throw new Error("Invalid credentials.");
+    if ((!isUsername(identifier) && !isEmail(identifier)) || !isSafeText(password, 128, true)) throw new Error("Invalid credentials.");
+    let email = identifier;
+    if (!isEmail(identifier)) {
+      const service = serviceClient();
+      const { data: profile, error: profileError } = await service.from("user_profiles").select("email, is_disabled").eq("username", identifier).maybeSingle();
+      if (profileError || !profile || profile.is_disabled || !profile.email) throw new Error("Invalid credentials.");
+      email = profile.email;
+    }
     const auth = createServerClient();
-    const { error } = await auth.auth.signInWithPassword({ email: profile.email, password });
+    const { error } = await auth.auth.signInWithPassword({ email, password });
     if (error) throw new Error("Invalid credentials.");
     return NextResponse.json({ ok: true });
   } catch (error) {

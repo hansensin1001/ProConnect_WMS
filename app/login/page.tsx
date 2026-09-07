@@ -14,17 +14,17 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-
-    const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
-    const result = await response.json();
-    if (!response.ok) {
-      setError(result.error ?? "Unable to sign in.");
+    try {
+      const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "Unable to sign in.");
+      router.push("/dashboard");
+      router.refresh();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to sign in. Check your connection and try again.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    router.push("/dashboard");
-    router.refresh();
   }
 
   return (
