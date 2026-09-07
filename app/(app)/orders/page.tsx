@@ -18,7 +18,7 @@ export default async function OrdersPage() {
 
   const { data } = await supabase
     .from("sales_orders")
-    .select("id, order_number, platform, customer_name, status, created_at")
+    .select("id, order_number, platform, customer_name, shipping_address, shipping_city, shipping_postcode, status, created_at, order_items(id, product_id, quantity_requested, quantity_picked)")
     .eq("org_id", ctx.org.id)
     .order("created_at", { ascending: false });
 
@@ -31,12 +31,18 @@ export default async function OrdersPage() {
     created_at: string;
   }[];
 
+  const { data: productData } = await supabase
+    .from("products")
+    .select("id, sku, name, unit_of_measure")
+    .eq("org_id", ctx.org.id)
+    .order("sku");
+
   return (
     <div>
       <PageHeader title="Orders" subtitle={`Sales orders for ${ctx.org.name} · ${ctx.org.slug}`} />
 
       <div className="p-8">
-        <OrderManager orgId={ctx.org.id} orgName={ctx.org.name} canManage={ctx.role === "owner" || ctx.role === "manager"} initialOrders={orders} />
+        <OrderManager orgId={ctx.org.id} orgName={ctx.org.name} canManage={ctx.role === "owner" || ctx.role === "manager"} initialOrders={orders as any[]} products={(productData ?? []) as any[]} />
       </div>
     </div>
   );
