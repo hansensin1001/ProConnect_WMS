@@ -28,7 +28,10 @@ export async function GET(request: NextRequest) {
     const { supabase } = await requirePlatformAdmin(request);
     const { data, error } = await supabase.from("organizations").select("id, name, slug, deployment_mode, created_at, org_members(id, user_id, role, created_at)").order("name");
     if (error) throw error;
-    return NextResponse.json({ organizations: data ?? [] });
+    const { data: users } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    const usersById = new Map((users?.users ?? []).map((user) => [user.id, { email: user.email ?? "Unknown user", disabled: user.banned_until != null }]));
+    const organizations = (data ?? []).map((organization: any) => ({ ...organization, org_members: organization.org_members.map((member: any) => ({ ...member, ...usersById.get(member.user_id) })) }));
+    return NextResponse.json({ organizations });
   } catch (error) { return failure(error, 403); }
 }
 
