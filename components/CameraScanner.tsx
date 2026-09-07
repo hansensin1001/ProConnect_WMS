@@ -14,36 +14,41 @@ export function CameraScanner({
 
   useEffect(() => {
     if (!active) return;
-    let cancelled = false;
+    let mounted = true;
     let scannerInstance: any;
 
-    import("html5-qrcode").then(({ Html5Qrcode }) => {
-      if (cancelled) return;
-      const scanner = new Html5Qrcode(regionId.current);
-      scannerInstance = scanner;
-
-      scanner
-        .start(
+    async function startScanner() {
+      try {
+        const { Html5Qrcode } = await import("html5-qrcode");
+        if (!mounted) return;
+        const scanner = new Html5Qrcode(regionId.current);
+        scannerInstance = scanner;
+        await scanner.start(
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 260, height: 160 } },
           (decodedText: string) => {
             onDetected(decodedText);
-            scanner.stop().catch(() => {});
+            scanner.stop().catch(() => undefined);
           },
           () => {
             // per-frame decode failures are expected — ignore
           }
-        )
-        .catch(() => {
+        );
+        if (!mounted) await scanner.stop().catch(() => undefined);
+      } catch {
+        if (mounted) {
           setError(
             "Camera unavailable. Grant camera permission, or use manual entry below."
           );
-        });
-    });
+        }
+      }
+    }
+
+    startScanner();
 
     return () => {
-      cancelled = true;
-      scannerInstance?.stop().catch(() => {});
+      mounted = false;
+      scannerInstance?.stop().catch(() => undefined);
     };
   }, [active, onDetected]);
 

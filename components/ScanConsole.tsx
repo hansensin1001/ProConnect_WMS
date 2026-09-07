@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { CameraScanner } from "@/components/CameraScanner";
 import { createClient } from "@/lib/supabase/client";
 import { clsx } from "clsx";
@@ -15,7 +15,9 @@ export function ScanConsole({
   orgId: string;
   warehouseId: string;
 }) {
-  const supabase = createClient();
+  // Keep one browser client for the component lifetime. Recreating it changed
+  // scan callbacks on every render and could restart the camera while routing.
+  const supabase = useMemo(() => createClient(), []);
 
   const [mode, setMode] = useState<Mode>("PUTAWAY");
   const [step, setStep] = useState<Step>("product");
