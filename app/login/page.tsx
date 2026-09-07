@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,7 +18,16 @@ export default function LoginPage() {
     try {
       const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error ?? "Unable to sign in.");
+      if (!response.ok) {
+        // During the User-ID migration, existing email accounts remain able to
+        // sign in even if the server-side resolver is not yet deployed.
+        if (username.includes("@")) {
+          const supabase = createClient();
+          const { error: signInError } = await supabase.auth.signInWithPassword({ email: username.trim(), password });
+          if (!signInError) { router.push("/dashboard"); router.refresh(); return; }
+        }
+        throw new Error(result.error ?? "Unable to sign in.");
+      }
       router.push("/dashboard");
       router.refresh();
     } catch (error) {
@@ -38,7 +48,7 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="bg-panel border border-line p-6">
           <h1 className="text-lg font-semibold mb-1">Sign in</h1>
           <p className="text-sm text-graphite mb-6">
-            Access your warehouse operations console.
+            Access your warehouse operations console. Existing users may use their email while User IDs are being migrated.
           </p>
 
           <label className="block text-xs font-medium text-graphite mb-1" htmlFor="username">
