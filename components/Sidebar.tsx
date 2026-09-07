@@ -8,6 +8,7 @@ import {
   Package,
   MapPinned,
   ClipboardList,
+  Truck,
   ScanLine,
   BarChart3,
   ShieldCheck,
@@ -19,7 +20,8 @@ const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutGrid },
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/locations", label: "Locations", icon: MapPinned },
-  { href: "/orders", label: "Orders", icon: ClipboardList },
+  { href: "/orders", label: "Sales Orders", icon: ClipboardList },
+  { href: "/purchase-orders", label: "Purchase Orders", icon: Truck },
   { href: "/scan", label: "Scan", icon: ScanLine },
   { href: "/reports", label: "Reports", icon: BarChart3 },
 ];

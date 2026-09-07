@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentOrgContext } from "@/lib/org";
 import { Sidebar } from "@/components/Sidebar";
+import { OrganizationSwitcher } from "@/components/OrganizationSwitcher";
 
 export default async function AppLayout({
   children,
@@ -31,7 +32,7 @@ export default async function AppLayout({
   return (
     <div className="flex">
       <Sidebar orgName={ctx.org.name} role={ctx.role} />
-      <main className="flex-1 min-h-screen">{children}</main>
+      <main className="flex-1 min-h-screen"><div className="flex justify-end border-b border-line bg-panel px-5 py-3"><OrganizationSwitcher organizations={ctx.organizations} activeId={ctx.org.id} /></div>{children}</main>
     </div>
   );
 }

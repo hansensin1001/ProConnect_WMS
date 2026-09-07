@@ -23,6 +23,11 @@ create table if not exists organizations (
     created_at timestamptz not null default now()
 );
 
+alter table organizations add column if not exists code varchar(20);
+update organizations
+  set code = upper(left(regexp_replace(slug, '[^a-zA-Z0-9]', '', 'g'), 20))
+  where code is null or code = '';
+
 create table if not exists org_members (
     id uuid primary key default uuid_generate_v4(),
     org_id uuid not null references organizations(id) on delete cascade,
@@ -162,16 +167,143 @@ create table if not exists purchase_orders (
     unique(org_id, po_number)
 );
 
+create table if not exists purchase_order_items (
+    id uuid primary key default uuid_generate_v4(),
+    purchase_order_id uuid not null references purchase_orders(id) on delete cascade,
+    product_id uuid not null references products(id),
+    location_id uuid not null references locations(id),
+    quantity_expected integer not null check (quantity_expected > 0),
+    quantity_received integer not null default 0 check (quantity_received >= 0)
+);
+
+-- Immutable business audit trail. Inventory balances are the current state;
+-- this table explains every change to that state.
+create table if not exists inventory_transactions (
+    id uuid primary key default uuid_generate_v4(),
+    org_id uuid not null references organizations(id) on delete cascade,
+    warehouse_id uuid references warehouses(id),
+    product_id uuid not null references products(id),
+    location_id uuid not null references locations(id),
+    transaction_type varchar(20) not null check (transaction_type in ('INBOUND','OUTBOUND','ADJUSTMENT')),
+    quantity_delta integer not null check (quantity_delta <> 0),
+    reference_type varchar(30),
+    reference_id uuid,
+    reason text,
+    user_id uuid references auth.users(id),
+    created_at timestamptz not null default now()
+);
+
+create or replace function receive_purchase_order(p_purchase_order_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_po public.purchase_orders%rowtype;
+  v_item record;
+  v_warehouse_id uuid;
+begin
+  select * into v_po from public.purchase_orders where id = p_purchase_order_id for update;
+  if v_po.id is null then raise exception 'purchase order not found'; end if;
+  if not public.is_org_role(v_po.org_id, array['owner','manager']) then raise exception 'manager or owner access is required'; end if;
+  if v_po.status = 'COMPLETED' then raise exception 'purchase order already received'; end if;
+  for v_item in select poi.*, z.warehouse_id from public.purchase_order_items poi join public.locations l on l.id = poi.location_id join public.warehouse_zones z on z.id = l.zone_id where poi.purchase_order_id = p_purchase_order_id loop
+    insert into public.inventory_balances (product_id, location_id, lot_number, quantity_on_hand)
+      values (v_item.product_id, v_item.location_id, '', v_item.quantity_expected)
+      on conflict (product_id, location_id, lot_number) do update set quantity_on_hand = public.inventory_balances.quantity_on_hand + excluded.quantity_on_hand, updated_at = now();
+    update public.purchase_order_items set quantity_received = quantity_expected where id = v_item.id;
+    insert into public.inventory_transactions (org_id, warehouse_id, product_id, location_id, transaction_type, quantity_delta, reference_type, reference_id, reason, user_id)
+      values (v_po.org_id, v_item.warehouse_id, v_item.product_id, v_item.location_id, 'INBOUND', v_item.quantity_expected, 'PURCHASE_ORDER', v_po.id, 'PO receipt', auth.uid());
+  end loop;
+  update public.purchase_orders set status = 'COMPLETED' where id = p_purchase_order_id;
+end;
+$$;
+
+create or replace function apply_stock_adjustment(p_org_id uuid, p_product_id uuid, p_location_id uuid, p_quantity_delta integer, p_reason text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_warehouse_id uuid;
+begin
+  if p_quantity_delta = 0 then raise exception 'adjustment quantity cannot be zero'; end if;
+  if not public.is_org_role(p_org_id, array['owner','manager']) then raise exception 'manager or owner access is required'; end if;
+  select z.warehouse_id into v_warehouse_id from public.locations l join public.warehouse_zones z on z.id=l.zone_id where l.id=p_location_id;
+  if v_warehouse_id is null then raise exception 'location not found'; end if;
+  insert into public.inventory_balances (product_id, location_id, lot_number, quantity_on_hand)
+    values (p_product_id, p_location_id, '', p_quantity_delta)
+    on conflict (product_id, location_id, lot_number) do update set quantity_on_hand = public.inventory_balances.quantity_on_hand + excluded.quantity_on_hand, updated_at=now();
+  insert into public.inventory_transactions (org_id, warehouse_id, product_id, location_id, transaction_type, quantity_delta, reason, user_id)
+    values (p_org_id, v_warehouse_id, p_product_id, p_location_id, 'ADJUSTMENT', p_quantity_delta, p_reason, auth.uid());
+end;
+$$;
+
 create table if not exists sales_orders (
     id uuid primary key default uuid_generate_v4(),
     org_id uuid not null references organizations(id) on delete cascade,
     order_number varchar(50) not null,
     platform varchar(50) not null default 'MANUAL', -- SHOPEE, LAZADA, TIKTOK, DIRECT, MANUAL
     customer_name varchar(100),
+    shipping_address text,
+    shipping_city varchar(100),
+    shipping_postcode varchar(20),
     status varchar(30) not null default 'NEW', -- NEW, ALLOCATED, PICKING, PACKED, SHIPPED
     created_at timestamptz not null default now(),
     unique(org_id, order_number)
 );
+
+alter table sales_orders add column if not exists shipping_address text;
+alter table sales_orders add column if not exists shipping_city varchar(100);
+alter table sales_orders add column if not exists shipping_postcode varchar(20);
+
+create table if not exists sales_order_sequences (
+    org_id uuid primary key references organizations(id) on delete cascade,
+    last_value integer not null default 0,
+    constraint sales_order_sequences_nonnegative check (last_value >= 0)
+);
+
+-- Creates the header and assigns a sequence atomically, so concurrent users
+-- can never receive the same organization-specific order number.
+create or replace function create_sales_order(
+    p_org_id uuid,
+    p_customer_name varchar,
+    p_platform varchar default 'MANUAL',
+    p_shipping_address text default null,
+    p_shipping_city varchar default null,
+    p_shipping_postcode varchar default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sequence integer;
+  v_org_code varchar;
+  v_order_id uuid;
+begin
+  if not public.is_org_role(p_org_id, array['owner', 'manager']) then
+    raise exception 'manager or owner access is required to create orders';
+  end if;
+
+  select coalesce(nullif(code, ''), upper(left(regexp_replace(slug, '[^a-zA-Z0-9]', '', 'g'), 20)))
+    into v_org_code
+    from public.organizations where id = p_org_id;
+  if v_org_code is null then raise exception 'organization not found'; end if;
+
+  insert into public.sales_order_sequences (org_id, last_value)
+    values (p_org_id, 1)
+    on conflict (org_id) do update set last_value = public.sales_order_sequences.last_value + 1
+    returning last_value into v_sequence;
+
+  insert into public.sales_orders (org_id, order_number, platform, customer_name, shipping_address, shipping_city, shipping_postcode, status)
+    values (p_org_id, v_org_code || '-SO-' || lpad(v_sequence::text, 5, '0'), coalesce(p_platform, 'MANUAL'), p_customer_name, p_shipping_address, p_shipping_city, p_shipping_postcode, 'NEW')
+    returning id into v_order_id;
+  return v_order_id;
+end;
+$$;
 
 create table if not exists order_items (
     id uuid primary key default uuid_generate_v4(),
@@ -276,6 +408,21 @@ begin
 
   insert into public.scan_events (org_id, warehouse_id, user_id, event_type, product_id, location_id, quantity)
   values (p_org_id, p_warehouse_id, auth.uid(), p_event_type, p_product_id, p_location_id, p_quantity);
+
+  if p_event_type in ('PUTAWAY', 'PICK') then
+    insert into public.inventory_transactions (org_id, warehouse_id, product_id, location_id, transaction_type, quantity_delta, reference_type, reason, user_id)
+    values (
+      p_org_id,
+      p_warehouse_id,
+      p_product_id,
+      p_location_id,
+      case when p_event_type = 'PICK' then 'OUTBOUND' else 'INBOUND' end,
+      case when p_event_type = 'PICK' then -p_quantity else p_quantity end,
+      'SCAN',
+      p_event_type,
+      auth.uid()
+    );
+  end if;
 end;
 $$;
 
@@ -295,6 +442,9 @@ alter table purchase_orders enable row level security;
 alter table sales_orders enable row level security;
 alter table order_items enable row level security;
 alter table scan_events enable row level security;
+alter table sales_order_sequences enable row level security;
+alter table purchase_order_items enable row level security;
+alter table inventory_transactions enable row level security;
 
 drop policy if exists org_members_select on organizations;
 create policy org_members_select on organizations for select
@@ -356,6 +506,15 @@ drop policy if exists po_scoped on purchase_orders;
 create policy po_scoped on purchase_orders for all
   using (is_org_member(org_id)) with check (is_org_member(org_id));
 
+drop policy if exists purchase_order_items_scoped on purchase_order_items;
+create policy purchase_order_items_scoped on purchase_order_items for all
+  using (is_org_member((select po.org_id from public.purchase_orders po where po.id = purchase_order_id)))
+  with check (public.is_org_role((select po.org_id from public.purchase_orders po where po.id = purchase_order_id), array['owner','manager']));
+
+drop policy if exists inventory_transactions_read on inventory_transactions;
+create policy inventory_transactions_read on inventory_transactions for select
+  using (is_org_member(org_id));
+
 drop policy if exists so_scoped on sales_orders;
 drop policy if exists sales_orders_read on sales_orders;
 drop policy if exists sales_orders_manage on sales_orders;
@@ -381,3 +540,4 @@ create index if not exists idx_inventory_product on inventory_balances(product_i
 create index if not exists idx_inventory_location on inventory_balances(location_id);
 create index if not exists idx_sales_orders_org_status on sales_orders(org_id, status);
 create index if not exists idx_scan_events_org_created on scan_events(org_id, created_at desc);
+create index if not exists idx_inventory_transactions_org_created on inventory_transactions(org_id, created_at desc);

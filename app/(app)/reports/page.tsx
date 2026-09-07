@@ -1,28 +1,30 @@
 import { PageHeader } from "@/components/PageHeader";
 import { getCurrentOrgContext } from "@/lib/org";
 import { createClient } from "@/lib/supabase/server";
+import { ReportConsole } from "@/components/ReportConsole";
 
 export default async function ReportsPage() {
   const ctx = await getCurrentOrgContext();
   if (!ctx?.org) return null;
   const supabase = createClient();
-  const [{ data: stock }, { data: orders }, { data: scans }] = await Promise.all([
+  const [{ data: stock }, { data: orders }, { data: movements }] = await Promise.all([
     supabase.from("inventory_balances").select("quantity_on_hand, quantity_reserved, products(sku, name)").limit(100),
     supabase.from("sales_orders").select("status").eq("org_id", ctx.org.id),
-    supabase.from("scan_events").select("event_type, quantity").eq("org_id", ctx.org.id),
+    supabase.from("inventory_transactions").select("id, transaction_type, quantity_delta, reason, reference_type, created_at, products(sku, name), locations(location_code)").eq("org_id", ctx.org.id).order("created_at", { ascending: false }).limit(100),
   ]);
   const stockLines = (stock ?? []) as any[];
   const orderRows = (orders ?? []) as any[];
-  const scanRows = (scans ?? []) as any[];
+  const movementRows = (movements ?? []) as any[];
   const totalOnHand = stockLines.reduce((sum, row) => sum + Number(row.quantity_on_hand || 0), 0);
   const totalReserved = stockLines.reduce((sum, row) => sum + Number(row.quantity_reserved || 0), 0);
   const openOrders = orderRows.filter((row) => ["NEW", "ALLOCATED", "PICKING"].includes(row.status)).length;
-  const pickedUnits = scanRows.filter((row) => row.event_type === "PICK").reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+  const pickedUnits = movementRows.filter((row) => row.transaction_type === "OUTBOUND").reduce((sum, row) => sum + Math.abs(Number(row.quantity_delta || 0)), 0);
 
   return <div>
     <PageHeader title="Reports" subtitle="Live warehouse operations summary" />
     <div className="p-8 space-y-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+      <ReportConsole orgName={ctx.org.name} movements={movementRows} />
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
         {[['Units on hand', totalOnHand], ['Units reserved', totalReserved], ['Open orders', openOrders], ['Units picked', pickedUnits]].map(([label, value]) => (
           <div key={String(label)} className="border border-line border-l-4 border-l-rack bg-panel px-5 py-4">
             <div className="text-xs uppercase tracking-wide text-graphite">{label}</div>
