@@ -70,6 +70,19 @@ export async function PATCH(request: NextRequest) {
   try {
     const { supabase } = await requirePlatformAdmin(request);
     const body = await request.json();
+    if (body.kind === "password") {
+      const password = String(body.password ?? "");
+      if (!body.userId || password.length < 8) throw new Error("A user and an 8+ character temporary password are required.");
+      const { error } = await supabase.auth.admin.updateUserById(String(body.userId), { password });
+      if (error) throw error;
+      return NextResponse.json({ ok: true });
+    }
+    if (body.kind === "disable") {
+      if (!body.userId) throw new Error("A user is required.");
+      const { error } = await supabase.auth.admin.updateUserById(String(body.userId), { ban_duration: body.disabled ? "876000h" : "none" });
+      if (error) throw error;
+      return NextResponse.json({ ok: true });
+    }
     const role = ["owner", "manager", "operator"].includes(body.role) ? body.role : null;
     if (!body.memberId || !role) throw new Error("Member and valid role are required.");
     const { error } = await supabase.from("org_members").update({ role }).eq("id", body.memberId);

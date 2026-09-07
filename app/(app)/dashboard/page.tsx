@@ -15,7 +15,8 @@ async function getCounts(orgId: string) {
         .in("status", ["NEW", "ALLOCATED", "PICKING"]),
       supabase
         .from("inventory_balances")
-        .select("*", { count: "exact", head: true })
+        .select("*, products!inner(org_id)", { count: "exact", head: true })
+        .eq("products.org_id", orgId)
         .lt("quantity_on_hand", 5),
       supabase
         .from("scan_events")

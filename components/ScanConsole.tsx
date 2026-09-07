@@ -41,66 +41,58 @@ export function ScanConsole({
 
   const lookupProduct = useCallback(
     async (code: string) => {
-      const { data, error } = await supabase
-        .from("products")
-        .select("id, sku, name")
-        .eq("org_id", orgId)
-        .or(`barcode.eq.${code},sku.eq.${code}`)
-        .maybeSingle();
-
-      if (error || !data) {
-        setStatus({ type: "error", message: `No product found for "${code}".` });
-        return;
-      }
-      setProduct(data);
-      setStep("location");
-      setScanning(true);
-      setStatus(null);
-      setManualValue("");
+      try {
+        // Separate exact-match queries prevent a scanned barcode from being
+        // interpreted as part of a PostgREST `.or()` expression.
+        const [barcodeResult, skuResult] = await Promise.all([
+          supabase.from("products").select("id, sku, name").eq("org_id", orgId).eq("barcode", code).maybeSingle(),
+          supabase.from("products").select("id, sku, name").eq("org_id", orgId).eq("sku", code).maybeSingle(),
+        ]);
+        const data = barcodeResult.data ?? skuResult.data;
+        if (barcodeResult.error || skuResult.error || !data) throw new Error(`No product found for "${code}".`);
+        setProduct(data);
+        setStep("location");
+        setScanning(true);
+        setStatus(null);
+        setManualValue("");
+      } catch (error) { setStatus({ type: "error", message: error instanceof Error ? error.message : "Unable to look up this product." }); }
     },
     [orgId, supabase]
   );
 
   const lookupLocation = useCallback(
     async (code: string) => {
-      const { data, error } = await supabase
-        .from("locations")
-        .select("id, location_code")
-        .eq("location_code", code)
-        .maybeSingle();
-
-      if (error || !data) {
-        setStatus({ type: "error", message: `No location found for "${code}".` });
-        return;
-      }
-      setLocation(data);
-      setStep("quantity");
-      setScanning(false);
-      setStatus(null);
-      setManualValue("");
+      try {
+        const { data, error } = await supabase
+          .from("locations")
+          .select("id, location_code, warehouse_zones!inner(warehouse_id)")
+          .eq("location_code", code)
+          .eq("warehouse_zones.warehouse_id", warehouseId)
+          .maybeSingle();
+        if (error || !data) throw new Error(`No location found for "${code}" in this warehouse.`);
+        setLocation(data);
+        setStep("quantity");
+        setScanning(false);
+        setStatus(null);
+        setManualValue("");
+      } catch (error) { setStatus({ type: "error", message: error instanceof Error ? error.message : "Unable to look up this location." }); }
     },
-    [supabase]
+    [supabase, warehouseId]
   );
 
   async function handleConfirm() {
     if (!product || !location) return;
     setBusy(true);
-    const { error } = await (supabase.rpc as any)("apply_scan_event", {
-      p_org_id: orgId,
-      p_warehouse_id: warehouseId,
-      p_event_type: mode,
-      p_product_id: product.id,
-      p_location_id: location.id,
-      p_quantity: Number(quantity) || 0,
-    });
-    setBusy(false);
-
-    if (error) {
-      setStatus({ type: "error", message: error.message });
-      return;
-    }
-    setStatus({ type: "ok", message: `${mode === "PUTAWAY" ? "Put away" : "Picked"} ${quantity} × ${product.sku} at ${location.location_code}.` });
-    setStep("done");
+    try {
+      const { error } = await (supabase.rpc as any)("apply_scan_event", {
+        p_org_id: orgId, p_warehouse_id: warehouseId, p_event_type: mode,
+        p_product_id: product.id, p_location_id: location.id, p_quantity: Number(quantity) || 0,
+      });
+      if (error) throw error;
+      setStatus({ type: "ok", message: `${mode === "PUTAWAY" ? "Put away" : "Picked"} ${quantity} × ${product.sku} at ${location.location_code}.` });
+      setStep("done");
+    } catch (error) { setStatus({ type: "error", message: error instanceof Error ? error.message : "Unable to save this scan." }); }
+    finally { setBusy(false); }
   }
 
   return (

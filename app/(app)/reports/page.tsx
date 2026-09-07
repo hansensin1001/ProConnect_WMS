@@ -8,7 +8,7 @@ export default async function ReportsPage() {
   if (!ctx?.org) return null;
   const supabase = createClient();
   const [{ data: stock }, { data: orders }, { data: movements }] = await Promise.all([
-    supabase.from("inventory_balances").select("quantity_on_hand, quantity_reserved, products(sku, name)").limit(100),
+    supabase.from("inventory_balances").select("quantity_on_hand, quantity_reserved, products!inner(sku, name, org_id)").eq("products.org_id", ctx.org.id).limit(100),
     supabase.from("sales_orders").select("status").eq("org_id", ctx.org.id),
     supabase.from("inventory_transactions").select("id, transaction_type, quantity_delta, reason, reference_type, created_at, products(sku, name), locations(location_code)").eq("org_id", ctx.org.id).order("created_at", { ascending: false }).limit(100),
   ]);

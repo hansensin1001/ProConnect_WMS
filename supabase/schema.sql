@@ -153,6 +153,38 @@ create table if not exists inventory_balances (
     unique(product_id, location_id, lot_number)
 );
 
+-- These tables deliberately appear before the workflow functions below.  A
+-- previous schema ordering created allocation tables before `order_items`,
+-- which made a clean-project migration fail before any application code ran.
+create table if not exists sales_orders (
+    id uuid primary key default uuid_generate_v4(),
+    org_id uuid not null references organizations(id) on delete cascade,
+    order_number varchar(50) not null,
+    platform varchar(50) not null default 'MANUAL',
+    customer_name varchar(100),
+    shipping_address text,
+    shipping_city varchar(100),
+    shipping_postcode varchar(20),
+    status varchar(30) not null default 'NEW',
+    created_at timestamptz not null default now(),
+    unique(org_id, order_number)
+);
+
+create table if not exists sales_order_sequences (
+    org_id uuid primary key references organizations(id) on delete cascade,
+    last_value integer not null default 0,
+    constraint sales_order_sequences_nonnegative check (last_value >= 0)
+);
+
+create table if not exists order_items (
+    id uuid primary key default uuid_generate_v4(),
+    sales_order_id uuid not null references sales_orders(id) on delete cascade,
+    product_id uuid not null references products(id),
+    quantity_requested integer not null check (quantity_requested > 0),
+    quantity_picked integer not null default 0 check (quantity_picked >= 0),
+    quantity_reserved integer not null default 0 check (quantity_reserved >= 0)
+);
+
 -- ----------------------------------------------------------------------------
 -- 4. Orders
 -- ----------------------------------------------------------------------------
@@ -176,6 +208,11 @@ create table if not exists purchase_order_items (
     quantity_received integer not null default 0 check (quantity_received >= 0)
 );
 
+create table if not exists purchase_order_sequences (
+    org_id uuid primary key references organizations(id) on delete cascade,
+    last_value integer not null default 0 check (last_value >= 0)
+);
+
 -- Immutable business audit trail. Inventory balances are the current state;
 -- this table explains every change to that state.
 create table if not exists inventory_transactions (
@@ -193,6 +230,34 @@ create table if not exists inventory_transactions (
     created_at timestamptz not null default now()
 );
 
+alter table order_items add column if not exists quantity_reserved integer not null default 0;
+create table if not exists order_item_allocations (
+    id uuid primary key default uuid_generate_v4(),
+    order_item_id uuid not null references order_items(id) on delete cascade,
+    inventory_balance_id uuid not null references inventory_balances(id),
+    quantity_reserved integer not null check (quantity_reserved > 0),
+    quantity_fulfilled integer not null default 0 check (quantity_fulfilled >= 0)
+);
+
+create or replace function create_purchase_order_with_lines(p_org_id uuid, p_supplier_name varchar, p_lines jsonb)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare v_sequence integer; v_code varchar; v_po_id uuid; v_line jsonb;
+begin
+  if not public.is_org_role(p_org_id, array['owner','manager']) then raise exception 'manager or owner access is required'; end if;
+  if jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then raise exception 'at least one inbound line is required'; end if;
+  select coalesce(nullif(code,''), upper(left(regexp_replace(slug,'[^a-zA-Z0-9]','','g'),20))) into v_code from public.organizations where id=p_org_id;
+  insert into public.purchase_order_sequences(org_id,last_value) values(p_org_id,1) on conflict(org_id) do update set last_value=public.purchase_order_sequences.last_value+1 returning last_value into v_sequence;
+  insert into public.purchase_orders(org_id,po_number,supplier_name,status) values(p_org_id,v_code||'-PO-'||lpad(v_sequence::text,5,'0'),p_supplier_name,'PENDING') returning id into v_po_id;
+  for v_line in select value from jsonb_array_elements(p_lines) loop
+    if coalesce((v_line->>'quantity')::integer,0) <= 0 then raise exception 'inbound quantity must be greater than zero'; end if;
+    if not exists(select 1 from public.products where id=(v_line->>'productId')::uuid and org_id=p_org_id) then raise exception 'product does not belong to active organization'; end if;
+    if not exists(select 1 from public.locations l join public.warehouse_zones z on z.id=l.zone_id join public.warehouses w on w.id=z.warehouse_id where l.id=(v_line->>'locationId')::uuid and w.org_id=p_org_id and l.is_active) then raise exception 'receiving location is invalid'; end if;
+    insert into public.purchase_order_items(purchase_order_id,product_id,location_id,quantity_expected) values(v_po_id,(v_line->>'productId')::uuid,(v_line->>'locationId')::uuid,(v_line->>'quantity')::integer);
+  end loop;
+  return v_po_id;
+end;
+$$;
+
 create or replace function receive_purchase_order(p_purchase_order_id uuid)
 returns void
 language plpgsql
@@ -207,7 +272,7 @@ begin
   select * into v_po from public.purchase_orders where id = p_purchase_order_id for update;
   if v_po.id is null then raise exception 'purchase order not found'; end if;
   if not public.is_org_role(v_po.org_id, array['owner','manager']) then raise exception 'manager or owner access is required'; end if;
-  if v_po.status = 'COMPLETED' then raise exception 'purchase order already received'; end if;
+  if v_po.status = 'RECEIVED' then raise exception 'purchase order already received'; end if;
   for v_item in select poi.*, z.warehouse_id from public.purchase_order_items poi join public.locations l on l.id = poi.location_id join public.warehouse_zones z on z.id = l.zone_id where poi.purchase_order_id = p_purchase_order_id loop
     insert into public.inventory_balances (product_id, location_id, lot_number, quantity_on_hand)
       values (v_item.product_id, v_item.location_id, '', v_item.quantity_expected)
@@ -216,9 +281,98 @@ begin
     insert into public.inventory_transactions (org_id, warehouse_id, product_id, location_id, transaction_type, quantity_delta, reference_type, reference_id, reason, user_id)
       values (v_po.org_id, v_item.warehouse_id, v_item.product_id, v_item.location_id, 'INBOUND', v_item.quantity_expected, 'PURCHASE_ORDER', v_po.id, 'PO receipt', auth.uid());
   end loop;
-  update public.purchase_orders set status = 'COMPLETED' where id = p_purchase_order_id;
+  update public.purchase_orders set status = 'RECEIVED' where id = p_purchase_order_id;
 end;
 $$;
+
+create or replace function allocate_sales_order(p_sales_order_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_order public.sales_orders%rowtype; v_item record; v_balance record; v_remaining integer; v_available integer;
+begin
+  select * into v_order from public.sales_orders where id=p_sales_order_id for update;
+  if v_order.id is null then raise exception 'sales order not found'; end if;
+  if not public.is_org_role(v_order.org_id, array['owner','manager']) then raise exception 'manager or owner access is required'; end if;
+  if v_order.status <> 'NEW' then raise exception 'only new sales orders can be allocated'; end if;
+  for v_item in select * from public.order_items where sales_order_id=p_sales_order_id loop
+    select coalesce(sum(quantity_on_hand-quantity_reserved),0) into v_available from public.inventory_balances b join public.products p on p.id=b.product_id where b.product_id=v_item.product_id and p.org_id=v_order.org_id;
+    if v_available < v_item.quantity_requested then raise exception 'insufficient available stock for product %', v_item.product_id; end if;
+    v_remaining := v_item.quantity_requested;
+    for v_balance in select id, quantity_on_hand, quantity_reserved from public.inventory_balances where product_id=v_item.product_id and quantity_on_hand > quantity_reserved order by updated_at, id for update loop
+      exit when v_remaining = 0;
+      v_available := least(v_remaining, v_balance.quantity_on_hand-v_balance.quantity_reserved);
+      update public.inventory_balances set quantity_reserved=quantity_reserved+v_available,updated_at=now() where id=v_balance.id;
+      insert into public.order_item_allocations(order_item_id,inventory_balance_id,quantity_reserved) values(v_item.id,v_balance.id,v_available);
+      v_remaining := v_remaining-v_available;
+    end loop;
+    -- The availability check above is only a fast pre-check.  Inventory rows
+    -- are locked inside this loop, so a concurrent allocation can consume
+    -- stock between the pre-check and the lock.  Never mark a partial reserve
+    -- as allocated.
+    if v_remaining > 0 then raise exception 'insufficient available stock for product %', v_item.product_id; end if;
+    update public.order_items set quantity_reserved=quantity_requested where id=v_item.id;
+  end loop;
+  update public.sales_orders set status='ALLOCATED' where id=p_sales_order_id;
+end;
+$$;
+
+create or replace function fulfill_sales_order(p_sales_order_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_order public.sales_orders%rowtype; v_allocation record; v_location_id uuid; v_warehouse_id uuid;
+begin
+  select * into v_order from public.sales_orders where id=p_sales_order_id for update;
+  if v_order.id is null then raise exception 'sales order not found'; end if;
+  if not public.is_org_role(v_order.org_id, array['owner','manager']) then raise exception 'manager or owner access is required'; end if;
+  if v_order.status <> 'ALLOCATED' then raise exception 'only allocated sales orders can be fulfilled'; end if;
+  for v_allocation in select a.*, b.product_id, b.location_id from public.order_item_allocations a join public.inventory_balances b on b.id=a.inventory_balance_id join public.order_items oi on oi.id=a.order_item_id where oi.sales_order_id=p_sales_order_id for update loop
+    update public.inventory_balances set quantity_on_hand=quantity_on_hand-v_allocation.quantity_reserved,quantity_reserved=quantity_reserved-v_allocation.quantity_reserved,updated_at=now() where id=v_allocation.inventory_balance_id;
+    update public.order_item_allocations set quantity_fulfilled=quantity_reserved where id=v_allocation.id;
+    update public.order_items set quantity_picked=quantity_picked+v_allocation.quantity_reserved where id=v_allocation.order_item_id;
+    select z.warehouse_id into v_warehouse_id from public.locations l join public.warehouse_zones z on z.id=l.zone_id where l.id=v_allocation.location_id;
+    insert into public.inventory_transactions(org_id,warehouse_id,product_id,location_id,transaction_type,quantity_delta,reference_type,reference_id,reason,user_id) values(v_order.org_id,v_warehouse_id,v_allocation.product_id,v_allocation.location_id,'OUTBOUND',-v_allocation.quantity_reserved,'SALES_ORDER',v_order.id,'Sales order fulfillment',auth.uid());
+  end loop;
+  update public.sales_orders set status='SHIPPED' where id=p_sales_order_id;
+end;
+$$;
+
+-- A reservation may only be released by an explicit cancellation workflow.
+-- Until that workflow exists, deleting an allocated order would otherwise leave
+-- reserved stock stranded in its inventory balance.
+create or replace function prevent_sales_order_delete_after_allocation()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if old.status <> 'NEW' then raise exception 'only new sales orders can be deleted'; end if;
+  return old;
+end;
+$$;
+drop trigger if exists sales_orders_delete_guard on sales_orders;
+create trigger sales_orders_delete_guard before delete on sales_orders
+for each row execute function prevent_sales_order_delete_after_allocation();
+
+create or replace function prevent_location_delete_with_inventory()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if exists (select 1 from public.inventory_balances where location_id = old.id and (quantity_on_hand <> 0 or quantity_reserved <> 0)) then
+    raise exception 'location cannot be deleted while it contains stock';
+  end if;
+  return old;
+end;
+$$;
+drop trigger if exists locations_delete_guard on locations;
+create trigger locations_delete_guard before delete on locations
+for each row execute function prevent_location_delete_with_inventory();
+
+create or replace function prevent_product_delete_with_inventory()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if exists (select 1 from public.inventory_balances where product_id = old.id and (quantity_on_hand <> 0 or quantity_reserved <> 0)) then
+    raise exception 'SKU cannot be deleted while it has stock';
+  end if;
+  return old;
+end;
+$$;
+drop trigger if exists products_delete_guard on products;
+create trigger products_delete_guard before delete on products
+for each row execute function prevent_product_delete_with_inventory();
 
 create or replace function apply_stock_adjustment(p_org_id uuid, p_product_id uuid, p_location_id uuid, p_quantity_delta integer, p_reason text)
 returns void
@@ -230,8 +384,10 @@ declare v_warehouse_id uuid;
 begin
   if p_quantity_delta = 0 then raise exception 'adjustment quantity cannot be zero'; end if;
   if not public.is_org_role(p_org_id, array['owner','manager']) then raise exception 'manager or owner access is required'; end if;
-  select z.warehouse_id into v_warehouse_id from public.locations l join public.warehouse_zones z on z.id=l.zone_id where l.id=p_location_id;
+  if not exists(select 1 from public.products where id=p_product_id and org_id=p_org_id) then raise exception 'product does not belong to active organization'; end if;
+  select z.warehouse_id into v_warehouse_id from public.locations l join public.warehouse_zones z on z.id=l.zone_id join public.warehouses w on w.id=z.warehouse_id where l.id=p_location_id and w.org_id=p_org_id and l.is_active;
   if v_warehouse_id is null then raise exception 'location not found'; end if;
+  if p_quantity_delta < 0 and not exists(select 1 from public.inventory_balances where product_id=p_product_id and location_id=p_location_id and lot_number='' and quantity_on_hand + p_quantity_delta >= quantity_reserved) then raise exception 'adjustment would make on-hand stock lower than reserved stock'; end if;
   insert into public.inventory_balances (product_id, location_id, lot_number, quantity_on_hand)
     values (p_product_id, p_location_id, '', p_quantity_delta)
     on conflict (product_id, location_id, lot_number) do update set quantity_on_hand = public.inventory_balances.quantity_on_hand + excluded.quantity_on_hand, updated_at=now();
@@ -301,6 +457,23 @@ begin
   insert into public.sales_orders (org_id, order_number, platform, customer_name, shipping_address, shipping_city, shipping_postcode, status)
     values (p_org_id, v_org_code || '-SO-' || lpad(v_sequence::text, 5, '0'), coalesce(p_platform, 'MANUAL'), p_customer_name, p_shipping_address, p_shipping_city, p_shipping_postcode, 'NEW')
     returning id into v_order_id;
+  return v_order_id;
+end;
+$$;
+
+-- Keep header and lines in one transaction: a failed line validation rolls
+-- back the generated sequence/header rather than leaving an empty order.
+create or replace function create_sales_order_with_lines(p_org_id uuid, p_customer_name varchar, p_platform varchar, p_shipping_address text, p_shipping_city varchar, p_shipping_postcode varchar, p_lines jsonb)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare v_order_id uuid; v_line jsonb;
+begin
+  if jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then raise exception 'at least one sales order line is required'; end if;
+  v_order_id := public.create_sales_order(p_org_id,p_customer_name,p_platform,p_shipping_address,p_shipping_city,p_shipping_postcode);
+  for v_line in select value from jsonb_array_elements(p_lines) loop
+    if coalesce((v_line->>'quantity')::integer,0) <= 0 then raise exception 'sales quantity must be greater than zero'; end if;
+    if not exists(select 1 from public.products where id=(v_line->>'productId')::uuid and org_id=p_org_id) then raise exception 'product does not belong to active organization'; end if;
+    insert into public.order_items(sales_order_id,product_id,quantity_requested,quantity_picked,quantity_reserved) values(v_order_id,(v_line->>'productId')::uuid,(v_line->>'quantity')::integer,0,0);
+  end loop;
   return v_order_id;
 end;
 $$;
@@ -398,7 +571,7 @@ begin
       where product_id = p_product_id
         and location_id = p_location_id
         and lot_number = coalesce(p_lot_number, '')
-        and quantity_on_hand >= p_quantity
+        and quantity_on_hand - quantity_reserved >= p_quantity
       returning id into v_balance_id;
 
     if v_balance_id is null then
@@ -443,7 +616,9 @@ alter table sales_orders enable row level security;
 alter table order_items enable row level security;
 alter table scan_events enable row level security;
 alter table sales_order_sequences enable row level security;
+alter table purchase_order_sequences enable row level security;
 alter table purchase_order_items enable row level security;
+alter table order_item_allocations enable row level security;
 alter table inventory_transactions enable row level security;
 
 drop policy if exists org_members_select on organizations;
@@ -503,13 +678,15 @@ create policy inventory_read on inventory_balances for select using (is_org_memb
 create policy inventory_manage on inventory_balances for all using (public.is_org_role((select p.org_id from products p where p.id = product_id), array['owner','manager'])) with check (public.is_org_role((select p.org_id from products p where p.id = product_id), array['owner','manager']));
 
 drop policy if exists po_scoped on purchase_orders;
-create policy po_scoped on purchase_orders for all
-  using (is_org_member(org_id)) with check (is_org_member(org_id));
+drop policy if exists purchase_orders_read on purchase_orders;
+drop policy if exists purchase_orders_manage on purchase_orders;
+create policy purchase_orders_read on purchase_orders for select using (is_org_member(org_id));
 
 drop policy if exists purchase_order_items_scoped on purchase_order_items;
-create policy purchase_order_items_scoped on purchase_order_items for all
-  using (is_org_member((select po.org_id from public.purchase_orders po where po.id = purchase_order_id)))
-  with check (public.is_org_role((select po.org_id from public.purchase_orders po where po.id = purchase_order_id), array['owner','manager']));
+drop policy if exists purchase_order_items_read on purchase_order_items;
+drop policy if exists purchase_order_items_manage on purchase_order_items;
+create policy purchase_order_items_read on purchase_order_items for select
+  using (is_org_member((select po.org_id from public.purchase_orders po where po.id = purchase_order_id)));
 
 drop policy if exists inventory_transactions_read on inventory_transactions;
 create policy inventory_transactions_read on inventory_transactions for select
@@ -518,13 +695,23 @@ create policy inventory_transactions_read on inventory_transactions for select
 drop policy if exists so_scoped on sales_orders;
 drop policy if exists sales_orders_read on sales_orders;
 drop policy if exists sales_orders_manage on sales_orders;
+drop policy if exists sales_orders_delete on sales_orders;
 create policy sales_orders_read on sales_orders for select using (is_org_member(org_id));
-create policy sales_orders_manage on sales_orders for all using (public.is_org_role(org_id, array['owner','manager'])) with check (public.is_org_role(org_id, array['owner','manager']));
+create policy sales_orders_delete on sales_orders for delete using (public.is_org_role(org_id, array['owner','manager']));
 
 drop policy if exists order_items_scoped on order_items;
-create policy order_items_scoped on order_items for all
-  using (is_org_member((select so.org_id from sales_orders so where so.id = sales_order_id)))
-  with check (is_org_member((select so.org_id from sales_orders so where so.id = sales_order_id)));
+drop policy if exists order_items_read on order_items;
+drop policy if exists order_items_manage on order_items;
+create policy order_items_read on order_items for select
+  using (is_org_member((select so.org_id from sales_orders so where so.id = sales_order_id)));
+
+drop policy if exists purchase_order_sequences_read on purchase_order_sequences;
+create policy purchase_order_sequences_read on purchase_order_sequences for select
+  using (is_org_member(org_id));
+
+drop policy if exists order_item_allocations_read on order_item_allocations;
+create policy order_item_allocations_read on order_item_allocations for select
+  using (is_org_member((select so.org_id from public.order_items oi join public.sales_orders so on so.id = oi.sales_order_id where oi.id = order_item_id)));
 
 drop policy if exists scan_events_scoped on scan_events;
 create policy scan_events_scoped on scan_events for all
