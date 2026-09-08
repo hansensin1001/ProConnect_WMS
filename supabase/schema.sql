@@ -177,6 +177,7 @@ create table if not exists warehouse_zones (
     id uuid primary key default uuid_generate_v4(),
     warehouse_id uuid not null references warehouses(id) on delete cascade,
     zone_code varchar(20) not null,
+    description text,
     zone_type varchar(20) not null default 'STORAGE', -- RECEIVING, PICKING, STORAGE, DISPATCH
     unique(warehouse_id, zone_code)
 );

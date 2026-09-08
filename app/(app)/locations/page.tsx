@@ -6,7 +6,7 @@ import { LocationManager } from "@/components/LocationManager";
 const PAGE_SIZE = 50;
 
 type Warehouse = { id: string; code: string; name: string };
-type Zone = { id: string; warehouse_id: string; zone_code: string; zone_type: string };
+type Zone = { id: string; warehouse_id: string; zone_code: string; zone_type: string; description?: string | null };
 type Location = {
   id: string;
   zone_id: string;
@@ -54,7 +54,7 @@ export default async function LocationsPage({ searchParams }: { searchParams?: {
 
   const { data: zoneData, error: zoneError } = await supabase
     .from("warehouse_zones")
-    .select("id, warehouse_id, zone_code, zone_type")
+    .select("id, warehouse_id, zone_code, zone_type, description")
     .in("warehouse_id", warehouseIds)
     .order("zone_code");
   if (zoneError) throw zoneError;
