@@ -3,20 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { isUuid } from "@/lib/validation";
 
 const PAGE_SIZE = 100;
-const firstRelation = <T,>(value: T | T[] | null | undefined): T | undefined => Array.isArray(value) ? value[0] : value ?? undefined;
-
-function locationDetails(locationId: string, relation: any) {
-  const location = firstRelation<any>(relation);
-  const zone = firstRelation<any>(location?.warehouse_zones);
-  const warehouse = firstRelation<any>(zone?.warehouses);
-  return {
-    locationId,
-    locationCode: location?.display_code ?? location?.location_code ?? "Unknown bin",
-    zoneCode: zone?.zone_code ?? "Unknown zone",
-    warehouseName: warehouse?.name ?? warehouse?.code ?? "Unknown warehouse",
-  };
-}
-
 // Bin details are deliberately loaded only after a user opens SKU details.
 // The Inventory list itself stays compact regardless of warehouse size.
 export async function GET(request: NextRequest) {
@@ -36,23 +22,8 @@ export async function GET(request: NextRequest) {
   ]);
   if (!membership || !product) return NextResponse.json({ error: "Inventory item was not found." }, { status: 404 });
 
-  const [{ data, count, error }, { data: inboundRows, error: inboundError }] = await Promise.all([
-    supabase
-      .from("inventory_balances")
-      .select("location_id, quantity_on_hand, quantity_reserved, locations(location_code, display_code, warehouse_zones(zone_code, warehouses(code, name)))", { count: "exact" })
-      .eq("product_id", productId)
-      .or("quantity_on_hand.neq.0,quantity_reserved.neq.0")
-      .order("updated_at", { ascending: false })
-      .limit(PAGE_SIZE),
-    (supabase.from("purchase_order_items") as any)
-      .select("location_id, quantity_expected, quantity_received, locations(location_code, display_code, warehouse_zones(zone_code, warehouses(code, name))), purchase_orders!inner(org_id, status)")
-      .eq("product_id", productId)
-      .eq("purchase_orders.org_id", orgId)
-      .in("purchase_orders.status", ["DRAFT", "PENDING"])
-      .limit(PAGE_SIZE),
-  ]);
-  if (error) return NextResponse.json({ error: "Unable to load stock details." }, { status: 500 });
-  if (inboundError) return NextResponse.json({ error: "Unable to load inbound stock details." }, { status: 500 });
+  const { data: distribution, error: distributionError } = await (supabase.rpc as any)("get_inventory_location_distribution", { p_org_id: orgId, p_product_id: productId, p_limit: PAGE_SIZE });
+  if (distributionError) return NextResponse.json({ error: "Unable to load the location distribution." }, { status: 500 });
 
   // Serial data is intentionally retrieved only for an opened serialized SKU.
   // Both predicates are retained here (as well as RLS) to preserve tenant isolation.
@@ -83,20 +54,18 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
-    stock: [...[...(data ?? []).reduce((byLocation: Map<string, any>, balance: any) => {
-      const existing = byLocation.get(balance.location_id) ?? { ...locationDetails(balance.location_id, balance.locations), onHand: 0, reserved: 0, serialNumbers: serialsByLocation.get(balance.location_id) ?? [] };
-      existing.onHand += Number(balance.quantity_on_hand);
-      existing.reserved += Number(balance.quantity_reserved);
-      byLocation.set(balance.location_id, existing);
-      return byLocation;
-    }, new Map<string, any>()).entries(), ...(inboundRows ?? []).map((row: any) => [row.location_id, row] as const)].reduce((byLocation: Map<string, any>, entry: any) => {
-      const [locationId, inbound] = entry;
-      const existing = byLocation.get(locationId) ?? { ...locationDetails(locationId, inbound.locations), onHand: 0, reserved: 0, serialNumbers: serialsByLocation.get(locationId) ?? [] };
-      if (inbound.quantity_expected != null) existing.inbound = (existing.inbound ?? 0) + Math.max(0, Number(inbound.quantity_expected) - Number(inbound.quantity_received));
-      byLocation.set(locationId, existing);
-      return byLocation;
-    }, new Map<string, any>()).values()].map((balance: any) => ({ ...balance, available: balance.onHand - balance.reserved, inbound: balance.inbound ?? 0 })),
-    total: count ?? 0,
+    stock: (distribution ?? []).map((location: any) => ({
+      locationId: location.location_id,
+      warehouseName: location.warehouse_name,
+      zoneCode: location.zone_code,
+      locationCode: location.location_code,
+      onHand: Number(location.quantity_on_hand),
+      reserved: Number(location.quantity_reserved),
+      available: Number(location.quantity_on_hand) - Number(location.quantity_reserved),
+      inbound: Number(location.quantity_inbound),
+      serialNumbers: serialsByLocation.get(location.location_id) ?? [],
+    })),
+    total: distribution?.length ?? 0,
     serials,
     serialTotal,
   });
