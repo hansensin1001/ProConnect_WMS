@@ -23,14 +23,23 @@ export async function GET(request: NextRequest) {
   ]);
   if (!membership || !product) return NextResponse.json({ error: "Inventory item was not found." }, { status: 404 });
 
-  const { data, count, error } = await supabase
-    .from("inventory_balances")
-    .select("location_id, quantity_on_hand, quantity_reserved, locations(location_code, display_code, warehouse_zones(zone_code, warehouses(code, name)))", { count: "exact" })
-    .eq("product_id", productId)
-    .or("quantity_on_hand.neq.0,quantity_reserved.neq.0")
-    .order("updated_at", { ascending: false })
-    .limit(PAGE_SIZE);
+  const [{ data, count, error }, { data: inboundRows, error: inboundError }] = await Promise.all([
+    supabase
+      .from("inventory_balances")
+      .select("location_id, quantity_on_hand, quantity_reserved, locations(location_code, display_code, warehouse_zones(zone_code, warehouses(code, name)))", { count: "exact" })
+      .eq("product_id", productId)
+      .or("quantity_on_hand.neq.0,quantity_reserved.neq.0")
+      .order("updated_at", { ascending: false })
+      .limit(PAGE_SIZE),
+    (supabase.from("purchase_order_items") as any)
+      .select("location_id, quantity_expected, quantity_received, locations(location_code, display_code, warehouse_zones(zone_code, warehouses(code, name))), purchase_orders!inner(org_id, status)")
+      .eq("product_id", productId)
+      .eq("purchase_orders.org_id", orgId)
+      .in("purchase_orders.status", ["DRAFT", "PENDING"])
+      .limit(PAGE_SIZE),
+  ]);
   if (error) return NextResponse.json({ error: "Unable to load stock details." }, { status: 500 });
+  if (inboundError) return NextResponse.json({ error: "Unable to load inbound stock details." }, { status: 500 });
 
   // Serial data is intentionally retrieved only for an opened serialized SKU.
   // Both predicates are retained here (as well as RLS) to preserve tenant isolation.
@@ -61,13 +70,19 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
-    stock: [...(data ?? []).reduce((byLocation: Map<string, any>, balance: any) => {
+    stock: [...[...(data ?? []).reduce((byLocation: Map<string, any>, balance: any) => {
       const existing = byLocation.get(balance.location_id) ?? { locationId: balance.location_id, locationCode: balance.locations?.display_code ?? balance.locations?.location_code ?? "Unknown bin", zoneCode: balance.locations?.warehouse_zones?.zone_code ?? "Unknown zone", warehouseName: balance.locations?.warehouse_zones?.warehouses?.name ?? balance.locations?.warehouse_zones?.warehouses?.code ?? "Unknown warehouse", onHand: 0, reserved: 0, serialNumbers: serialsByLocation.get(balance.location_id) ?? [] };
       existing.onHand += Number(balance.quantity_on_hand);
       existing.reserved += Number(balance.quantity_reserved);
       byLocation.set(balance.location_id, existing);
       return byLocation;
-    }, new Map<string, any>()).values()].map((balance: any) => ({ ...balance, available: balance.onHand - balance.reserved })),
+    }, new Map<string, any>()).entries(), ...(inboundRows ?? []).map((row: any) => [row.location_id, row] as const)].reduce((byLocation: Map<string, any>, entry: any) => {
+      const [locationId, inbound] = entry;
+      const existing = byLocation.get(locationId) ?? { locationId, locationCode: inbound.locations?.display_code ?? inbound.locations?.location_code ?? "Unknown bin", zoneCode: inbound.locations?.warehouse_zones?.zone_code ?? "Unknown zone", warehouseName: inbound.locations?.warehouse_zones?.warehouses?.name ?? inbound.locations?.warehouse_zones?.warehouses?.code ?? "Unknown warehouse", onHand: 0, reserved: 0, serialNumbers: serialsByLocation.get(locationId) ?? [] };
+      if (inbound.quantity_expected != null) existing.inbound = (existing.inbound ?? 0) + Math.max(0, Number(inbound.quantity_expected) - Number(inbound.quantity_received));
+      byLocation.set(locationId, existing);
+      return byLocation;
+    }, new Map<string, any>()).values()].map((balance: any) => ({ ...balance, available: balance.onHand - balance.reserved, inbound: balance.inbound ?? 0 })),
     total: count ?? 0,
     serials,
     serialTotal,
