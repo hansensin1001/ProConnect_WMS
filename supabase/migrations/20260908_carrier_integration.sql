@@ -5,7 +5,7 @@
 create table if not exists public.carriers (
   id uuid primary key default uuid_generate_v4(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
-  carrier_code varchar(40) not null check (carrier_code in ('DHL_EXPRESS', 'NINJA_VAN')),
+  carrier_code varchar(40) not null check (carrier_code in ('MANUAL', 'DHL_EXPRESS', 'NINJA_VAN')),
   display_name varchar(100) not null,
   is_active boolean not null default false,
   is_sandbox boolean not null default true,

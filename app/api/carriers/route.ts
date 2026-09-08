@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
       const { data: existing, error: readError } = await (admin.from("carriers") as any).select("id, encrypted_credentials").eq("id", body.id).eq("organization_id", body.orgId).maybeSingle();
       if (readError) throw readError;
       if (!existing) throw new Error("Carrier not found in the active organization.");
-      const encryptedCredentials = credentials ? encryptCredentials({ ...decryptCredentials(existing.encrypted_credentials), ...credentials }) : undefined;
+      const encryptedCredentials = body.carrierCode === "MANUAL" ? "manual" : credentials ? encryptCredentials({ ...decryptCredentials(existing.encrypted_credentials), ...credentials }) : undefined;
       const { data, error } = await (admin.from("carriers") as any)
         .update({ carrier_code: body.carrierCode, display_name: displayName, is_active: body.isActive, is_sandbox: body.isSandbox, ...(encryptedCredentials ? { encrypted_credentials: encryptedCredentials } : {}), updated_by: user.id })
         .eq("id", body.id).eq("organization_id", body.orgId)
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { data, error } = await (admin.from("carriers") as any)
-      .insert({ organization_id: body.orgId, carrier_code: body.carrierCode, display_name: displayName || carrierDisplayName(body.carrierCode), is_active: body.isActive, is_sandbox: body.isSandbox, encrypted_credentials: encryptCredentials(credentials ?? {}), created_by: user.id, updated_by: user.id })
+      .insert({ organization_id: body.orgId, carrier_code: body.carrierCode, display_name: displayName || carrierDisplayName(body.carrierCode), is_active: body.isActive, is_sandbox: body.isSandbox, encrypted_credentials: body.carrierCode === "MANUAL" ? "manual" : encryptCredentials(credentials ?? {}), created_by: user.id, updated_by: user.id })
       .select("id, organization_id, carrier_code, display_name, is_active, is_sandbox, created_at, updated_at").single();
     if (error) throw error;
     return NextResponse.json({ carrier: safeCarrier(data) });

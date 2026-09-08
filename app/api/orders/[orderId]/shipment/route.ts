@@ -87,7 +87,7 @@ export async function POST(request: NextRequest, { params }: { params: { orderId
         ...(lengthCm ? { lengthCm } : {}), ...(widthCm ? { widthCm } : {}), ...(heightCm ? { heightCm } : {}),
         ...(body.serviceCode?.trim() ? { serviceCode: body.serviceCode.trim() } : {}),
       };
-      const result = await CarrierService.createShipment(carrier as CarrierSettings, decryptCredentials(carrier.encrypted_credentials), requestData);
+      const result = await CarrierService.createShipment(carrier as CarrierSettings, carrier.carrier_code === "MANUAL" ? {} : decryptCredentials(carrier.encrypted_credentials), requestData);
       const { data: inserted, error: insertError } = await (admin.from("carrier_shipments") as any)
         .insert({ organization_id: body.orgId, sales_order_id: order.id, carrier_id: carrier.id, service_code: result.serviceCode, tracking_number: result.trackingNumber, status: result.carrierStatus, provider_status: result.carrierStatus, label_data: result.labelBase64, label_content_type: result.labelContentType, created_by: user.id, updated_by: user.id })
         .select("id, tracking_number, status, label_data, label_content_type, carrier_id, service_code").single();

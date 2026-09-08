@@ -1,4 +1,5 @@
 export const SUPPORTED_CARRIERS = [
+  { code: "MANUAL", displayName: "Manual shipment" },
   { code: "DHL_EXPRESS", displayName: "DHL Express" },
   { code: "NINJA_VAN", displayName: "Ninja Van" },
 ] as const;

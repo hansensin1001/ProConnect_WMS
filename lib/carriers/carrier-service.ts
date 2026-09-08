@@ -11,7 +11,7 @@ interface CarrierAdapter {
 }
 
 function sandboxShipment(settings: CarrierSettings, request: ShipmentRequest) {
-  const prefix = settings.carrier_code === "DHL_EXPRESS" ? "DHL-SBX" : "NV-SBX";
+  const prefix = settings.carrier_code === "DHL_EXPRESS" ? "DHL-SBX" : settings.carrier_code === "NINJA_VAN" ? "NV-SBX" : "MAN";
   const trackingNumber = `${prefix}-${randomBytes(5).toString("hex").toUpperCase()}`;
   return {
     trackingNumber,
@@ -43,7 +43,16 @@ class NinjaVanAdapter implements CarrierAdapter {
   }
 }
 
+class ManualCarrierAdapter implements CarrierAdapter {
+  async createShipment(settings: CarrierSettings, _credentials: CarrierCredentials, request: ShipmentRequest) {
+    // A manual shipment still receives a WMS-controlled AWB and printable
+    // label, but deliberately makes no external API call.
+    return sandboxShipment(settings, request);
+  }
+}
+
 const adapters: Record<CarrierSettings["carrier_code"], CarrierAdapter> = {
+  MANUAL: new ManualCarrierAdapter(),
   DHL_EXPRESS: new DhlExpressAdapter(),
   NINJA_VAN: new NinjaVanAdapter(),
 };
