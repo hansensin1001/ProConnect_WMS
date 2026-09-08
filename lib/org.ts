@@ -1,9 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
+import { cache } from "react";
 
 export type OrganizationContext = { id: string; name: string; slug: string; code?: string | null; deployment_mode: string };
 
-export async function getCurrentOrgContext() {
+// React cache is scoped to a single server render. It removes the duplicate
+// auth + organization query otherwise made by both the app layout and page.
+export const getCurrentOrgContext = cache(async function getCurrentOrgContext() {
   const supabase = createClient();
   const {
     data: { user },
@@ -35,4 +38,4 @@ export async function getCurrentOrgContext() {
     role: membership.role,
     organizations,
   };
-}
+});

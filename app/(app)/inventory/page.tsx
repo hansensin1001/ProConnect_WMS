@@ -33,24 +33,19 @@ export default async function InventoryPage({ searchParams }: { searchParams?: {
   }[];
 
   const productIds = products.map((product) => product.id);
-  const { data: balances } = productIds.length
-    ? await supabase.from("inventory_balances").select("product_id, quantity_on_hand, quantity_reserved, locations(location_code)").in("product_id", productIds)
-    : { data: [] };
-
-  const { data: warehouses } = await supabase.from("warehouses").select("id").eq("org_id", ctx.org.id);
-  const warehouseIds = (warehouses ?? []).map((warehouse: { id: string }) => warehouse.id);
-  const { data: locations } = warehouseIds.length
-    ? await supabase.from("locations").select("id, display_code, location_code, warehouse_zones!inner(warehouse_id)").in("warehouse_zones.warehouse_id", warehouseIds).eq("is_active", true)
-    : { data: [] };
-
-  const totalsByProduct = new Map<string, { onHand: number; reserved: number; locations: number; stockByLocation: { locationCode: string; onHand: number; reserved: number }[] }>();
-  (balances ?? []).forEach((b: any) => {
-    const cur = totalsByProduct.get(b.product_id) ?? { onHand: 0, reserved: 0, locations: 0, stockByLocation: [] };
-    cur.onHand += b.quantity_on_hand;
-    cur.reserved += b.quantity_reserved;
-    cur.locations += 1;
-    cur.stockByLocation.push({ locationCode: b.locations?.location_code ?? "Unknown bin", onHand: b.quantity_on_hand, reserved: b.quantity_reserved });
-    totalsByProduct.set(b.product_id, cur);
+  // Aggregate in Postgres so the route sends at most one stock-total record
+  // per displayed product instead of all balances, bins and lots.
+  const { data: totals, error: totalsError } = productIds.length
+    ? await (supabase.rpc as any)("get_inventory_page_totals", { p_product_ids: productIds })
+    : { data: [], error: null };
+  if (totalsError) throw totalsError;
+  const totalsByProduct = new Map<string, { onHand: number; reserved: number; locations: number }>();
+  (totals ?? []).forEach((total: any) => {
+    totalsByProduct.set(total.product_id, {
+      onHand: Number(total.quantity_on_hand),
+      reserved: Number(total.quantity_reserved),
+      locations: Number(total.location_count),
+    });
   });
 
   return (
@@ -59,7 +54,7 @@ export default async function InventoryPage({ searchParams }: { searchParams?: {
 
       <div className="p-8">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><InventorySearch initialQuery={query} /><ProductManager orgId={ctx.org.id} canManage={ctx.role === "owner" || ctx.role === "manager"} /></div>
-        <InventoryTable orgId={ctx.org.id} locations={(locations ?? []) as any[]} canManage={ctx.role === "owner" || ctx.role === "manager"} rows={products.map((product) => ({ ...product, ...(totalsByProduct.get(product.id) ?? { onHand: 0, reserved: 0, locations: 0, stockByLocation: [] }) }))} page={page} total={count ?? 0} />
+        <InventoryTable orgId={ctx.org.id} canManage={ctx.role === "owner" || ctx.role === "manager"} rows={products.map((product) => ({ ...product, ...(totalsByProduct.get(product.id) ?? { onHand: 0, reserved: 0, locations: 0 }) }))} page={page} total={count ?? 0} />
       </div>
     </div>
   );

@@ -884,6 +884,29 @@ create index if not exists idx_org_members_user_org on org_members(user_id, org_
 create index if not exists idx_scan_events_org_created on scan_events(org_id, created_at desc);
 create index if not exists idx_inventory_transactions_org_created on inventory_transactions(org_id, created_at desc);
 
+-- Route-performance indexes. Unique constraints above already cover warehouse
+-- and SKU identifiers; these cover the remaining filter/search patterns.
+create index if not exists idx_locations_zone_active_code on locations(zone_id, is_active, location_code);
+create extension if not exists pg_trgm;
+create index if not exists idx_products_sku_trgm on products using gin (sku gin_trgm_ops);
+create index if not exists idx_products_name_trgm on products using gin (name gin_trgm_ops);
+create index if not exists idx_inventory_balances_product_nonzero on inventory_balances(product_id) where quantity_on_hand <> 0 or quantity_reserved <> 0;
+
+-- Keep Inventory list responses small: one aggregate per displayed SKU. RLS
+-- remains enforced because this function runs as the authenticated invoker.
+create or replace function public.get_inventory_page_totals(p_product_ids uuid[])
+returns table (product_id uuid, quantity_on_hand bigint, quantity_reserved bigint, location_count bigint)
+language sql stable security invoker set search_path = public as $$
+  select b.product_id,
+    coalesce(sum(b.quantity_on_hand), 0)::bigint,
+    coalesce(sum(b.quantity_reserved), 0)::bigint,
+    count(distinct b.location_id)::bigint
+  from public.inventory_balances b
+  where b.product_id = any(p_product_ids)
+    and (b.quantity_on_hand <> 0 or b.quantity_reserved <> 0)
+  group by b.product_id;
+$$;
+
 -- ----------------------------------------------------------------------------
 -- 8. Record audit fields, user identifiers, and reversible workflows
 -- ----------------------------------------------------------------------------
