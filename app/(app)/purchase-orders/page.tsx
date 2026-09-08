@@ -11,7 +11,7 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
   const from = (page - 1) * PAGE_SIZE;
   const [{ data: orders, count }, { data: products }, { data: warehouses }] = await Promise.all([
     supabase.from("purchase_orders").select("id, po_number, supplier_name, status, created_at, purchase_order_items(id, product_id, location_id, quantity_expected, quantity_received)", { count: "exact" }).eq("org_id", ctx.org.id).order("created_at", { ascending: false }).range(from, from + PAGE_SIZE - 1),
-    supabase.from("products").select("id, sku, name").eq("org_id", ctx.org.id).order("sku").limit(200),
+    supabase.from("products").select("id, sku, name, is_serialized").eq("org_id", ctx.org.id).order("sku").limit(200),
     supabase.from("warehouses").select("id").eq("org_id", ctx.org.id),
   ]);
   const warehouseIds = (warehouses ?? []).map((warehouse: { id: string }) => warehouse.id);

@@ -16,7 +16,7 @@ async function requirePurchaseOrderManager(orgId: string) {
 function responseError(error: unknown, fallback = "Unable to process the purchase order.") {
   const message = error instanceof Error ? error.message : fallback;
   const status = message === "Unauthorized" ? 401 : message.includes("access") ? 403 : 400;
-  const safePrefixes = ["Unauthorized", "Manager or owner access is required.", "Purchase order not found", "Only pending", "Invalid ", "Add at least one"];
+  const safePrefixes = ["Unauthorized", "Manager or owner access is required.", "Purchase order not found", "Only pending", "Invalid ", "Add at least one", "Serial ", "serial ", "Duplicate ", "duplicate "];
   const safeMessage = safePrefixes.some((prefix) => message.startsWith(prefix)) ? message : fallback;
   return NextResponse.json({ error: safeMessage }, { status });
 }
@@ -52,7 +52,12 @@ export async function PATCH(request: NextRequest) {
       const validLines = Array.isArray(body?.lines) && body.lines.length >= 1 && body.lines.length <= 100 && body.lines.every((line: unknown) => typeof line === "object" && line !== null && isUuid((line as { productId?: unknown }).productId) && isUuid((line as { locationId?: unknown }).locationId) && isPositiveInteger((line as { quantity?: unknown }).quantity, 100_000));
       if (!isSafeText(body?.supplierName, 100, true) || !validLines) throw new Error("Invalid purchase order details.");
       ({ error } = await (supabase.rpc as any)("update_purchase_order_with_lines", { p_purchase_order_id: body.orderId, p_supplier_name: body.supplierName.trim(), p_lines: body.lines }));
-    } else ({ error } = await (supabase.rpc as any)(body.action === "receive" ? "receive_purchase_order" : "rollback_purchase_order", { p_purchase_order_id: body.orderId }));
+    } else if (body.action === "receive") {
+      const serials = body?.serials ?? [];
+      const validSerials = Array.isArray(serials) && serials.length <= 100_000 && serials.every((serial: unknown) => typeof serial === "object" && serial !== null && isUuid((serial as { purchaseOrderItemId?: unknown }).purchaseOrderItemId) && isSafeText((serial as { serialNumber?: unknown }).serialNumber, 160, true));
+      if (!validSerials) throw new Error("Invalid serial number receipt data.");
+      ({ error } = await (supabase.rpc as any)("receive_purchase_order", { p_purchase_order_id: body.orderId, p_serials: serials.map((serial: { purchaseOrderItemId: string; serialNumber: string }) => ({ purchase_order_item_id: serial.purchaseOrderItemId, serial_number: serial.serialNumber.trim().toUpperCase() })) }));
+    } else ({ error } = await (supabase.rpc as any)("rollback_purchase_order", { p_purchase_order_id: body.orderId }));
     if (error) throw error;
     return NextResponse.json({ ok: true });
   } catch (error) { return responseError(error); }

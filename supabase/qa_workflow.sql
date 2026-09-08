@@ -1,5 +1,5 @@
 -- ProConnect WMS transactional workflow verification
--- Run only after schema.sql. This creates all fixtures inside a transaction
+-- Run only after schema.sql and 20260908_serial_number_tracking.sql. This creates all fixtures inside a transaction
 -- and ROLLS THEM BACK, so no test organization, stock, or order persists.
 begin;
 
@@ -13,8 +13,13 @@ declare
   v_location uuid := uuid_generate_v4();
   v_product_a uuid := uuid_generate_v4();
   v_product_b uuid := uuid_generate_v4();
+  v_product_serial uuid := uuid_generate_v4();
   v_po uuid;
+  v_serial_po uuid;
   v_so uuid;
+  v_serial_so uuid;
+  v_serial_po_item uuid;
+  v_serial_so_item uuid;
   v_on_hand integer;
   v_reserved integer;
 begin
@@ -37,6 +42,8 @@ begin
   insert into public.products(id, org_id, sku, barcode, name, unit_of_measure) values
     (v_product_a, v_org_a, 'QA-SKU-A', 'QA-BAR-A', 'QA Product A', 'PCS'),
     (v_product_b, v_org_b, 'QA-SKU-B', 'QA-BAR-B', 'QA Product B', 'PCS');
+  insert into public.products(id, org_id, sku, barcode, name, unit_of_measure, is_serialized)
+    values (v_product_serial, v_org_a, 'QA-SKU-SERIAL', 'QA-BAR-SERIAL', 'QA Serial Product', 'PCS', true);
 
   -- Inbound: PO receipt must add exactly ten units in its selected bin.
   v_po := public.create_purchase_order_with_lines(v_org_a, 'QA Supplier', jsonb_build_array(jsonb_build_object('productId', v_product_a::text, 'locationId', v_location::text, 'quantity', 10)));
@@ -52,6 +59,23 @@ begin
   perform public.fulfill_sales_order(v_so);
   select quantity_on_hand, quantity_reserved into v_on_hand, v_reserved from public.inventory_balances where product_id = v_product_a and location_id = v_location;
   if v_on_hand <> 7 or v_reserved <> 0 then raise exception 'Fulfilment check failed: expected 7 on hand / 0 reserved, got % / %', v_on_hand, v_reserved; end if;
+
+  -- Serialised inbound and outbound: receipt count, exact scan gate, ship state
+  -- and rollback are all verified inside the same transaction.
+  v_serial_po := public.create_purchase_order_with_lines(v_org_a, 'QA Serial Supplier', jsonb_build_array(jsonb_build_object('productId', v_product_serial::text, 'locationId', v_location::text, 'quantity', 2)));
+  select id into v_serial_po_item from public.purchase_order_items where purchase_order_id=v_serial_po;
+  perform public.receive_purchase_order(v_serial_po, jsonb_build_array(
+    jsonb_build_object('purchase_order_item_id', v_serial_po_item::text, 'serial_number', 'QA-SERIAL-001'),
+    jsonb_build_object('purchase_order_item_id', v_serial_po_item::text, 'serial_number', 'QA-SERIAL-002')
+  ));
+  if (select count(*) from public.serial_numbers where purchase_order_id=v_serial_po and status='IN_STOCK') <> 2 then raise exception 'Serial receipt check failed'; end if;
+  v_serial_so := public.create_sales_order_with_lines(v_org_a, 'QA Serial Customer', 'MANUAL', null, null, null, jsonb_build_array(jsonb_build_object('productId', v_product_serial::text, 'quantity', 1)));
+  perform public.allocate_sales_order(v_serial_so);
+  select id into v_serial_so_item from public.order_items where sales_order_id=v_serial_so;
+  perform public.fulfill_sales_order_with_serials(v_serial_so, jsonb_build_array(jsonb_build_object('order_item_id', v_serial_so_item::text, 'serial_number', 'QA-SERIAL-001')));
+  if not exists(select 1 from public.serial_numbers where serial_number='QA-SERIAL-001' and status='SHIPPED' and sales_order_id=v_serial_so) then raise exception 'Serial shipment state check failed'; end if;
+  perform public.rollback_sales_order(v_serial_so);
+  if not exists(select 1 from public.serial_numbers where serial_number='QA-SERIAL-001' and status='IN_STOCK' and sales_order_id is null) then raise exception 'Serial shipment rollback check failed'; end if;
 
   -- Tenant boundary: an Org B SKU cannot be inserted into an Org A order.
   begin

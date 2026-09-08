@@ -72,6 +72,7 @@ export type Database = {
           name: string;
           description: string | null;
           price: number;
+          is_serialized: boolean;
           unit_of_measure: string;
           created_at: string;
           created_by: string | null;
@@ -94,6 +95,28 @@ export type Database = {
         };
         Insert: Partial<Database["public"]["Tables"]["inventory_balances"]["Row"]>;
         Update: Partial<Database["public"]["Tables"]["inventory_balances"]["Row"]>;
+      };
+      serial_numbers: {
+        Row: {
+          id: string;
+          org_id: string;
+          product_id: string;
+          location_id: string;
+          purchase_order_id: string | null;
+          purchase_order_item_id: string | null;
+          sales_order_id: string | null;
+          sales_order_item_id: string | null;
+          serial_number: string;
+          status: "IN_STOCK" | "SHIPPED" | "VOIDED";
+          received_at: string;
+          shipped_at: string | null;
+          created_at: string;
+          created_by: string | null;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["serial_numbers"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["serial_numbers"]["Row"]>;
       };
       sales_orders: {
         Row: {

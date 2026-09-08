@@ -16,7 +16,7 @@ export default async function InventoryPage({ searchParams }: { searchParams?: {
   const from = (page - 1) * PAGE_SIZE;
   let productQuery = supabase
     .from("products")
-    .select("id, sku, barcode, name, description, price, unit_of_measure", { count: "exact" })
+    .select("id, sku, barcode, name, description, price, unit_of_measure, is_serialized", { count: "exact" })
     .eq("org_id", ctx.org.id)
     .order("sku");
   if (query) productQuery = productQuery.or(`sku.ilike.%${query}%,name.ilike.%${query}%`);
@@ -30,6 +30,7 @@ export default async function InventoryPage({ searchParams }: { searchParams?: {
     description: string | null;
     price: number;
     unit_of_measure: string;
+    is_serialized: boolean;
   }[];
 
   const productIds = products.map((product) => product.id);

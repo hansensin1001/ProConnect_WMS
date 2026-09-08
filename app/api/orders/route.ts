@@ -27,6 +27,10 @@ function responseError(error: unknown, fallback = "Unable to process the order."
     "Only draft or new sales orders can be edited",
     "Only allocated or shipped sales orders can be rolled back",
     "Insufficient available stock",
+    "Serial ",
+    "serial ",
+    "Duplicate ",
+    "duplicate ",
     "Invalid ",
     "Customer",
     "At least one line item",
@@ -69,7 +73,14 @@ export async function PATCH(request: NextRequest) {
     } else if (body.action === "rollback") {
       ({ error } = await (supabase.rpc as any)("rollback_sales_order", { p_sales_order_id: body.orderId }));
     } else if (["ALLOCATED", "SHIPPED"].includes(body.status)) {
-      ({ error } = await (supabase.rpc as any)(body.status === "ALLOCATED" ? "allocate_sales_order" : "fulfill_sales_order", { p_sales_order_id: body.orderId }));
+      if (body.status === "ALLOCATED") {
+        ({ error } = await (supabase.rpc as any)("allocate_sales_order", { p_sales_order_id: body.orderId }));
+      } else {
+        const serials = body?.serials ?? [];
+        const validSerials = Array.isArray(serials) && serials.length <= 100_000 && serials.every((serial: unknown) => typeof serial === "object" && serial !== null && isUuid((serial as { orderItemId?: unknown }).orderItemId) && isSafeText((serial as { serialNumber?: unknown }).serialNumber, 160, true));
+        if (!validSerials) throw new Error("Invalid serial number shipment data.");
+        ({ error } = await (supabase.rpc as any)("fulfill_sales_order_with_serials", { p_sales_order_id: body.orderId, p_serials: serials.map((serial: { orderItemId: string; serialNumber: string }) => ({ order_item_id: serial.orderItemId, serial_number: serial.serialNumber.trim().toUpperCase() })) }));
+      }
     } else throw new Error("Invalid order action.");
     if (error) throw error;
     return NextResponse.json({ ok: true });
