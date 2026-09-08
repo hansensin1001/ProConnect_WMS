@@ -31,7 +31,13 @@ begin
 end;
 $$;
 
-create or replace function public.get_inventory_location_distribution(p_org_id uuid,p_product_id uuid,p_limit integer default 100)
+-- PostgreSQL cannot alter a function's OUT/RETURNS TABLE shape in place. This
+-- migration adds quantity_available, so replace the previous signature before
+-- creating the new location-distribution function. No inventory records are
+-- touched by this operation.
+drop function if exists public.get_inventory_location_distribution(uuid, uuid, integer);
+
+create function public.get_inventory_location_distribution(p_org_id uuid,p_product_id uuid,p_limit integer default 100)
 returns table(location_id uuid,warehouse_name text,zone_code text,location_code text,quantity_on_hand bigint,quantity_reserved bigint,quantity_available bigint,quantity_inbound bigint)
 language sql stable security invoker set search_path=public as $$
   with source_stock as (
@@ -51,11 +57,11 @@ language sql stable security invoker set search_path=public as $$
     from public.purchase_order_items poi join public.purchase_orders po on po.id=poi.purchase_order_id
     where poi.product_id=p_product_id and po.org_id=p_org_id and po.status in ('DRAFT','PENDING') group by poi.location_id
   ), rows as (
-    select s.location_id,s.on_hand,s.total_reserved-coalesce(ps.reserved,0)::bigint, s.on_hand-s.total_reserved as available,0::bigint as inbound from source_stock s left join picked_from_source ps on ps.source_location_id=s.location_id
+    select s.location_id,s.on_hand,(s.total_reserved-coalesce(ps.reserved,0))::bigint as reserved,s.on_hand-s.total_reserved as available,0::bigint as inbound from source_stock s left join picked_from_source ps on ps.source_location_id=s.location_id
     union all select picking_location_id,0::bigint,reserved,0::bigint,0::bigint from picked
     union all select location_id,0::bigint,0::bigint,0::bigint,inbound from inbound
   ), grouped as (
-    select location_id,sum(on_hand)::bigint on_hand,sum(total_reserved)::bigint reserved,sum(available)::bigint available,sum(inbound)::bigint inbound from rows group by location_id
+    select location_id,sum(on_hand)::bigint as on_hand,sum(reserved)::bigint as reserved,sum(available)::bigint as available,sum(inbound)::bigint as inbound from rows group by location_id
   )
   select g.location_id,coalesce(w.name,w.code,'[Unassigned Warehouse]'),coalesce(z.zone_code,'[Unassigned Zone]'),coalesce(l.display_code,l.location_code,'[Unassigned Bin]'),g.on_hand,g.reserved,g.available,g.inbound
   from grouped g left join public.locations l on l.id=g.location_id left join public.warehouse_zones z on z.id=l.zone_id left join public.warehouses w on w.id=z.warehouse_id and w.org_id=p_org_id
