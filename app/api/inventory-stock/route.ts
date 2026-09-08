@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
 
   const { data, count, error } = await supabase
     .from("inventory_balances")
-    .select("quantity_on_hand, quantity_reserved, locations(location_code, display_code)", { count: "exact" })
+    .select("location_id, quantity_on_hand, quantity_reserved, locations(location_code, display_code, warehouse_zones(zone_code, warehouses(code, name)))", { count: "exact" })
     .eq("product_id", productId)
     .or("quantity_on_hand.neq.0,quantity_reserved.neq.0")
     .order("updated_at", { ascending: false })
@@ -35,12 +35,13 @@ export async function GET(request: NextRequest) {
   // Serial data is intentionally retrieved only for an opened serialized SKU.
   // Both predicates are retained here (as well as RLS) to preserve tenant isolation.
   let serials: Array<{ serialNumber: string; locationCode: string }> = [];
+  const serialsByLocation = new Map<string, string[]>();
   let serialTotal = 0;
   const isSerialized = Boolean((product as unknown as { is_serialized?: boolean }).is_serialized);
   if (isSerialized) {
     const { data: serialRows, count: serialCount, error: serialError } = await supabase
       .from("serial_numbers")
-      .select("serial_number, locations(location_code, display_code)", { count: "exact" })
+      .select("serial_number, location_id, locations(location_code, display_code)", { count: "exact" })
       .eq("org_id", orgId)
       .eq("product_id", productId)
       .eq("status", "IN_STOCK")
@@ -51,15 +52,22 @@ export async function GET(request: NextRequest) {
       serialNumber: serial.serial_number,
       locationCode: serial.locations?.display_code ?? serial.locations?.location_code ?? "Unknown bin",
     }));
+    (serialRows ?? []).forEach((serial: any) => {
+      const entries = serialsByLocation.get(serial.location_id) ?? [];
+      entries.push(serial.serial_number);
+      serialsByLocation.set(serial.location_id, entries);
+    });
     serialTotal = serialCount ?? 0;
   }
 
   return NextResponse.json({
-    stock: (data ?? []).map((balance: any) => ({
-      locationCode: balance.locations?.display_code ?? balance.locations?.location_code ?? "Unknown bin",
-      onHand: balance.quantity_on_hand,
-      reserved: balance.quantity_reserved,
-    })),
+    stock: [...(data ?? []).reduce((byLocation: Map<string, any>, balance: any) => {
+      const existing = byLocation.get(balance.location_id) ?? { locationId: balance.location_id, locationCode: balance.locations?.display_code ?? balance.locations?.location_code ?? "Unknown bin", zoneCode: balance.locations?.warehouse_zones?.zone_code ?? "Unknown zone", warehouseName: balance.locations?.warehouse_zones?.warehouses?.name ?? balance.locations?.warehouse_zones?.warehouses?.code ?? "Unknown warehouse", onHand: 0, reserved: 0, serialNumbers: serialsByLocation.get(balance.location_id) ?? [] };
+      existing.onHand += Number(balance.quantity_on_hand);
+      existing.reserved += Number(balance.quantity_reserved);
+      byLocation.set(balance.location_id, existing);
+      return byLocation;
+    }, new Map<string, any>()).values()].map((balance: any) => ({ ...balance, available: balance.onHand - balance.reserved })),
     total: count ?? 0,
     serials,
     serialTotal,
