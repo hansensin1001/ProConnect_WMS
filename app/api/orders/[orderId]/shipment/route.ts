@@ -5,7 +5,7 @@ import type { CarrierSettings, ShipmentRequest } from "@/lib/carriers/types";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { isPositiveInteger, isSafeText, isUuid } from "@/lib/validation";
+import { isSafeText, isUuid } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
@@ -16,7 +16,9 @@ async function requireOrderManager(orgId: string) {
   const { data: membership, error } = await auth.from("org_members").select("role").eq("org_id", orgId).eq("user_id", user.id).maybeSingle();
   if (error) throw error;
   if (!membership || !["owner", "manager"].includes((membership as { role: string }).role)) throw new Error("Manager or owner access is required.");
-  return { user, admin: createAdminClient() };
+  // Keep this session-bound client for stock RPCs. Those database functions
+  // deliberately check auth.uid() against the organization manager role.
+  return { user, session: auth, admin: createAdminClient() };
 }
 
 function numberInRange(value: unknown, maximum: number, required = false) {
@@ -54,7 +56,7 @@ export async function POST(request: NextRequest, { params }: { params: { orderId
     const serials = body?.serials ?? [];
     if (!Array.isArray(serials) || serials.length > 100_000 || !serials.every((serial: unknown) => typeof serial === "object" && serial !== null && isUuid((serial as { orderItemId?: unknown }).orderItemId) && isSafeText((serial as { serialNumber?: unknown }).serialNumber, 160, true))) throw new Error("Invalid serial number shipment data.");
 
-    const { user, admin } = await requireOrderManager(body.orgId);
+    const { user, session, admin } = await requireOrderManager(body.orgId);
     const { data: order, error: orderError } = await (admin.from("sales_orders") as any)
       .select("id, org_id, order_number, customer_name, shipping_address, shipping_city, shipping_postcode, status, order_items(id, quantity_requested)")
       .eq("id", params.orderId).eq("org_id", body.orgId).maybeSingle();
@@ -96,7 +98,7 @@ export async function POST(request: NextRequest, { params }: { params: { orderId
     }
 
     if (order.status === "ALLOCATED") {
-      const { error: fulfillError } = await (admin.rpc as any)("fulfill_sales_order_with_serials", {
+      const { error: fulfillError } = await (session.rpc as any)("fulfill_sales_order_with_serials", {
         p_sales_order_id: order.id,
         p_serials: serials.map((serial: { orderItemId: string; serialNumber: string }) => ({ order_item_id: serial.orderItemId, serial_number: serial.serialNumber.trim().toUpperCase() })),
       });
