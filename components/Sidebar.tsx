@@ -12,6 +12,7 @@ import {
   ScanLine,
   BarChart3,
   ShieldCheck,
+  Settings2,
   LogOut,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
@@ -27,7 +28,7 @@ const NAV = [
 ];
 const SCAN_NAV = { href: "/scan", label: "Scan", icon: ScanLine };
 
-export function Sidebar({ orgName, isPlatformAdmin }: { orgName: string; isPlatformAdmin: boolean }) {
+export function Sidebar({ orgName, isPlatformAdmin, canManageCarriers }: { orgName: string; isPlatformAdmin: boolean; canManageCarriers: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const { signOut } = useAuth();
@@ -78,6 +79,22 @@ export function Sidebar({ orgName, isPlatformAdmin }: { orgName: string; isPlatf
           >
             <ShieldCheck size={16} strokeWidth={2} />
             Administration
+          </Link>
+        )}
+        {canManageCarriers && (
+          <Link
+            href="/settings/carriers"
+            prefetch
+            onMouseEnter={() => router.prefetch("/settings/carriers")}
+            className={clsx(
+              "flex items-center gap-3 px-3 py-2 text-sm transition-colors",
+              pathname.startsWith("/settings/carriers")
+                ? "bg-amber text-ink font-medium"
+                : "text-white/70 hover:bg-white/5 hover:text-white"
+            )}
+          >
+            <Settings2 size={16} strokeWidth={2} />
+            Manage Carriers
           </Link>
         )}
       </nav>

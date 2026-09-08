@@ -14,7 +14,7 @@ export default async function OrdersPage({ searchParams }: { searchParams?: { pa
   const [{ data, count }, { data: productData }] = await Promise.all([
     supabase
       .from("sales_orders")
-      .select("id, order_number, platform, customer_name, shipping_address, shipping_city, shipping_postcode, status, created_at, order_items(id, product_id, quantity_requested, quantity_picked, quantity_reserved)", { count: "exact" })
+      .select("id, order_number, platform, customer_name, shipping_address, shipping_city, shipping_postcode, status, created_at, carrier_id, carrier_service, tracking_number, carrier_status, order_items(id, product_id, quantity_requested, quantity_picked, quantity_reserved)", { count: "exact" })
       .eq("org_id", ctx.org.id)
       .order("created_at", { ascending: false }).range(from, from + PAGE_SIZE - 1),
     supabase

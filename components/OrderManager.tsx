@@ -13,7 +13,7 @@ type Product = { id: string; sku: string; name: string; unit_of_measure: string;
 type Line = { productId: string; quantity: number };
 type Header = { customerName: string; platform: string; shippingAddress: string; shippingCity: string; shippingPostcode: string };
 type OrderLine = { id: string; product_id: string; quantity_requested: number; quantity_picked: number; quantity_reserved?: number };
-type Order = { id: string; order_number: string; platform: string; customer_name: string | null; shipping_address?: string | null; shipping_city?: string | null; shipping_postcode?: string | null; status: string; created_at: string; order_items?: OrderLine[] };
+type Order = { id: string; order_number: string; platform: string; customer_name: string | null; shipping_address?: string | null; shipping_city?: string | null; shipping_postcode?: string | null; status: string; created_at: string; carrier_id?: string | null; carrier_service?: string | null; tracking_number?: string | null; carrier_status?: string | null; order_items?: OrderLine[] };
 type ProcessLine = OrderLine & { products?: Product; order_item_allocations?: { quantity_reserved: number; inventory_balances?: { location_id: string; locations?: { display_code?: string; location_code: string } } }[] };
 type ProcessOrder = Omit<Order, "order_items"> & { order_items?: ProcessLine[] };
 type SerialOption = { serial_number: string; product_id: string; location_id: string };
@@ -133,7 +133,27 @@ export function OrderManager({ orgId, orgName, canManage, initialOrders, product
   function removeShipmentSerial(lineId: string, serial: string) { setShipmentSerials((state) => ({ ...state, [lineId]: (state[lineId] ?? []).filter((value) => value !== serial) })); }
   function shipmentReady() { if (!processDetails || Object.values(verifyingSerials).some(Boolean)) return false; return (processDetails.order_items ?? []).every((line) => !line.products?.is_serialized || (shipmentSerials[line.id] ?? []).length === (line.quantity_reserved ?? line.quantity_requested)); }
   async function reserveFromDrawer() { if (!processing) return; setProcessingBusy(true); try { const changed = await apiTransition(processing, "ALLOCATED", [], pickingLocationId); await openProcessing(changed); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to reserve stock."); } finally { setProcessingBusy(false); } }
-  async function shipFromDrawer() { if (!processing || !shipmentReady()) return; setProcessingBusy(true); try { const serials = Object.entries(shipmentSerials).flatMap(([orderItemId, values]) => values.map((serialNumber) => ({ orderItemId, serialNumber }))); await apiTransition(processing, "SHIPPED", serials); setProcessing(null); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to ship this order."); } finally { setProcessingBusy(false); } }
+  async function shipFromDrawer() {
+    if (!processing || !shipmentReady()) return;
+    setProcessingBusy(true);
+    try {
+      const carrierResponse = await fetch(`/api/carriers?orgId=${encodeURIComponent(orgId)}`);
+      const carrierResult = await carrierResponse.json();
+      if (!carrierResponse.ok) throw new Error(carrierResult.error ?? "Unable to load carrier settings.");
+      const activeCarriers = (carrierResult.carriers ?? []).filter((carrier: { is_active: boolean }) => carrier.is_active);
+      if (activeCarriers.length !== 1) throw new Error("Select exactly one enabled carrier in Manage Carriers before dispatching this order.");
+      const serials = Object.entries(shipmentSerials).flatMap(([orderItemId, values]) => values.map((serialNumber) => ({ orderItemId, serialNumber })));
+      const response = await fetch(`/api/orders/${encodeURIComponent(processing.id)}/shipment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orgId, carrierId: activeCarriers[0].id, weightKg: 0.5, serials }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Unable to generate AWB and ship this order.");
+      const changed = { ...processing, status: "SHIPPED" };
+      setOrders((current) => current.map((item) => item.id === processing.id ? changed : item));
+      window.open(result.labelUrl, "_blank", "noopener,noreferrer");
+      setMessage(`Shipped with AWB ${result.awb}. The printable PDF label has opened in a new tab.`);
+      setProcessing(null);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to ship this order."); }
+    finally { setProcessingBusy(false); }
+  }
 
   const headerFields = <><label className="block text-sm">Customer name<input required value={header.customerName} onChange={(event) => updateHeader("customerName", event.target.value)} className="input-field mt-1" /></label><label className="block text-sm">Shipping address<textarea value={header.shippingAddress} onChange={(event) => updateHeader("shippingAddress", event.target.value)} className="input-field mt-1 min-h-20" /></label><div className="grid grid-cols-2 gap-3"><label className="block text-sm">City<input value={header.shippingCity} onChange={(event) => updateHeader("shippingCity", event.target.value)} className="input-field mt-1" /></label><label className="block text-sm">Postcode<input value={header.shippingPostcode} onChange={(event) => updateHeader("shippingPostcode", event.target.value)} className="input-field mt-1" /></label></div><label className="block text-sm">Carrier / channel<input value={header.platform} onChange={(event) => updateHeader("platform", event.target.value)} className="input-field mt-1" /></label></>;
   const lineEditor = <section><p className="text-xs font-semibold uppercase tracking-wide text-graphite">Order line items</p><div className="mt-3 space-y-3">{lines.map((line, index) => <div key={index} className="grid grid-cols-[1fr_100px_36px] gap-2"><select value={line.productId} onChange={(event) => updateLine(index, { productId: event.target.value })} className="input-field"><option value="">Select SKU…</option>{products.map((product) => <option key={product.id} value={product.id}>{product.sku} — {product.name}{product.is_serialized ? " · Serialized" : ""}</option>)}</select><input type="number" min="1" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} className="input-field" /><button type="button" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, i) => i !== index))} className="rounded border border-line text-alert hover:bg-alert/5 disabled:opacity-40" aria-label="Remove line"><Trash2 size={16} className="mx-auto" /></button></div>)}</div><button type="button" onClick={() => setLines((current) => [...current, { productId: "", quantity: 1 }])} className="btn-secondary mt-3">Add line item</button></section>;

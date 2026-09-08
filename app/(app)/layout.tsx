@@ -35,7 +35,7 @@ export default async function AppLayout({
 
   return (
     <AuthProvider><div className="flex">
-      <Sidebar orgName={`${ctx.org.code ?? "ORG"} · ${ctx.org.name}`} isPlatformAdmin={platformAdmin} />
+      <Sidebar orgName={`${ctx.org.code ?? "ORG"} · ${ctx.org.name}`} isPlatformAdmin={platformAdmin} canManageCarriers={ctx.role === "owner" || ctx.role === "manager"} />
       <main className="flex-1 min-h-screen"><div className="flex justify-end border-b border-line bg-panel px-5 py-3"><OrganizationSwitcher organizations={ctx.organizations} activeId={ctx.org.id} /></div>{children}</main>
     </div></AuthProvider>
   );
