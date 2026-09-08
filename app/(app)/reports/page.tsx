@@ -10,21 +10,27 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { p
   const supabase = createClient();
   const page = Math.max(1, Number.parseInt(searchParams?.page ?? "1", 10) || 1);
   const from = (page - 1) * PAGE_SIZE;
-  const [{ data: stock }, { count: openOrders }, { data: movements, count: movementCount }] = await Promise.all([
+  const [{ data: stock }, { count: openOrders }, { data: movements, count: movementCount }, { data: serialRows }] = await Promise.all([
     supabase.from("inventory_balances").select("quantity_on_hand, quantity_reserved, products!inner(sku, name, org_id)").eq("products.org_id", ctx.org.id).limit(100),
     supabase.from("sales_orders").select("*", { count: "exact", head: true }).eq("org_id", ctx.org.id).in("status", ["NEW", "ALLOCATED", "PICKING"]),
     supabase.from("inventory_transactions").select("id, transaction_type, quantity_delta, reason, reference_type, created_at, products(sku, name), locations(location_code)", { count: "exact" }).eq("org_id", ctx.org.id).order("created_at", { ascending: false }).range(from, from + PAGE_SIZE - 1),
+    supabase.from("serial_numbers").select("id, serial_number, status, received_at, shipped_at, products(sku, name), locations(location_code, display_code), purchase_orders(po_number), sales_orders(order_number)").eq("org_id", ctx.org.id).order("received_at", { ascending: false }).limit(200),
   ]);
   const stockLines = (stock ?? []) as any[];
   const movementRows = (movements ?? []) as any[];
   const totalOnHand = stockLines.reduce((sum, row) => sum + Number(row.quantity_on_hand || 0), 0);
   const totalReserved = stockLines.reduce((sum, row) => sum + Number(row.quantity_reserved || 0), 0);
   const pickedUnits = movementRows.filter((row) => row.transaction_type === "OUTBOUND").reduce((sum, row) => sum + Math.abs(Number(row.quantity_delta || 0)), 0);
+  const serialEvents = (serialRows ?? []).flatMap((serial: any) => {
+    const inbound = serial.received_at ? [{ id: `${serial.id}-in`, direction: "SERIAL_IN", occurredAt: serial.received_at, serialNumber: serial.serial_number, products: serial.products, locations: serial.locations, purchase_orders: serial.purchase_orders, sales_orders: serial.sales_orders }] : [];
+    const outbound = serial.shipped_at ? [{ id: `${serial.id}-out`, direction: "SERIAL_OUT", occurredAt: serial.shipped_at, serialNumber: serial.serial_number, products: serial.products, locations: serial.locations, purchase_orders: serial.purchase_orders, sales_orders: serial.sales_orders }] : [];
+    return [...inbound, ...outbound];
+  }).sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
 
   return <div>
     <PageHeader title="Reports" subtitle="Live warehouse operations summary" />
     <div className="p-8 space-y-6">
-      <ReportConsole orgName={ctx.org.name} movements={movementRows} page={page} total={movementCount ?? 0} />
+      <ReportConsole orgName={ctx.org.name} movements={movementRows} serialEvents={serialEvents} page={page} total={movementCount ?? 0} />
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
         {[['Units on hand', totalOnHand], ['Units reserved', totalReserved], ['Open orders', openOrders ?? 0], ['Units picked on this page', pickedUnits]].map(([label, value]) => (
           <div key={String(label)} className="border border-line border-l-4 border-l-rack bg-panel px-5 py-4">
