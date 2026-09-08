@@ -41,7 +41,7 @@ on conflict (entity) do update set last_value = greatest(identifier_sequences.la
 create unique index if not exists organizations_code_key on organizations(code);
 
 create or replace function assign_organization_code()
-returns trigger language plpgsql set search_path = public as $$
+returns trigger language plpgsql security definer set search_path = public as $$
 declare v_sequence integer;
 begin
   if new.code is null or new.code !~ '^ORG[0-9]+$' then
@@ -204,7 +204,7 @@ on conflict (entity) do update set last_value = greatest(identifier_sequences.la
 create unique index if not exists locations_display_code_key on locations(display_code);
 
 create or replace function assign_location_display_code()
-returns trigger language plpgsql set search_path = public as $$
+returns trigger language plpgsql security definer set search_path = public as $$
 declare v_sequence integer;
 begin
   if new.display_code is null or new.display_code !~ '^LOC[0-9]+$' then
@@ -249,7 +249,7 @@ values ('sku', (select count(*) from products))
 on conflict (entity) do update set last_value = greatest(identifier_sequences.last_value, excluded.last_value);
 
 create or replace function assign_product_sku()
-returns trigger language plpgsql set search_path = public as $$
+returns trigger language plpgsql security definer set search_path = public as $$
 declare v_sequence integer;
 begin
   if new.sku is null or new.sku !~ '^SKU[0-9]+$' then
