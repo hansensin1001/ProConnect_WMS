@@ -74,7 +74,8 @@ export async function PATCH(request: NextRequest) {
       ({ error } = await (supabase.rpc as any)("rollback_sales_order", { p_sales_order_id: body.orderId }));
     } else if (["ALLOCATED", "SHIPPED"].includes(body.status)) {
       if (body.status === "ALLOCATED") {
-        ({ error } = await (supabase.rpc as any)("allocate_sales_order", { p_sales_order_id: body.orderId }));
+        if (body.pickingLocationId != null && !isUuid(body.pickingLocationId)) throw new Error("Invalid picking location.");
+        ({ error } = await (supabase.rpc as any)("allocate_sales_order", { p_sales_order_id: body.orderId, p_picking_location_id: body.pickingLocationId || null }));
       } else {
         const serials = body?.serials ?? [];
         const validSerials = Array.isArray(serials) && serials.length <= 100_000 && serials.every((serial: unknown) => typeof serial === "object" && serial !== null && isUuid((serial as { orderItemId?: unknown }).orderItemId) && isSafeText((serial as { serialNumber?: unknown }).serialNumber, 160, true));

@@ -48,7 +48,12 @@ export async function GET(request: NextRequest) {
     ? await (supabase.from("serial_numbers") as any).select("serial_number, product_id, location_id").eq("org_id", orgId).eq("status", "IN_STOCK").in("product_id", productIds).in("location_id", locationIds).order("serial_number").limit(MAX_SERIAL_OPTIONS)
     : { data: [], error: null };
   if (serialError) return NextResponse.json({ error: "Unable to load available serial numbers." }, { status: 500 });
-  return NextResponse.json({ order, serials: serials ?? [], truncated: (serials?.length ?? 0) === MAX_SERIAL_OPTIONS });
+  const { data: pickingBalances, error: pickingError } = order.status === "NEW" && productIds.length
+    ? await (supabase.from("inventory_balances") as any).select("location_id, locations(display_code, location_code, is_active)").in("product_id", productIds).gt("quantity_on_hand", 0).order("location_id").limit(500)
+    : { data: [], error: null };
+  if (pickingError) return NextResponse.json({ error: "Unable to load picking locations." }, { status: 500 });
+  const pickingLocations = [...new Map((pickingBalances ?? []).filter((balance: any) => balance.locations?.is_active).map((balance: any) => [balance.location_id, { id: balance.location_id, code: balance.locations.display_code ?? balance.locations.location_code }])).values()];
+  return NextResponse.json({ order, serials: serials ?? [], pickingLocations, truncated: (serials?.length ?? 0) === MAX_SERIAL_OPTIONS });
 }
 
 // A pasted scanner batch used to issue one GET (and reload the entire order)
