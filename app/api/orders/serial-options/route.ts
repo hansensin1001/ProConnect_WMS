@@ -48,11 +48,20 @@ export async function GET(request: NextRequest) {
     ? await (supabase.from("serial_numbers") as any).select("serial_number, product_id, location_id").eq("org_id", orgId).eq("status", "IN_STOCK").in("product_id", productIds).in("location_id", locationIds).order("serial_number").limit(MAX_SERIAL_OPTIONS)
     : { data: [], error: null };
   if (serialError) return NextResponse.json({ error: "Unable to load available serial numbers." }, { status: 500 });
-  const { data: pickingBalances, error: pickingError } = order.status === "NEW" && productIds.length
-    ? await (supabase.from("inventory_balances") as any).select("location_id, locations(display_code, location_code, is_active)").in("product_id", productIds).gt("quantity_on_hand", 0).order("location_id").limit(500)
+  const { data: warehouses, error: warehouseError } = order.status === "NEW"
+    ? await supabase.from("warehouses").select("id").eq("org_id", orgId)
+    : { data: [], error: null };
+  if (warehouseError) return NextResponse.json({ error: "Unable to load picking locations." }, { status: 500 });
+  const warehouseIds = (warehouses ?? []).map((warehouse: { id: string }) => warehouse.id);
+  const { data: zones, error: zoneError } = warehouseIds.length && order.status === "NEW"
+    ? await supabase.from("warehouse_zones").select("id").in("warehouse_id", warehouseIds).eq("zone_type", "PICKING")
+    : { data: [], error: null };
+  if (zoneError) return NextResponse.json({ error: "Unable to load picking locations." }, { status: 500 });
+  const { data: pickingRows, error: pickingError } = (zones ?? []).length
+    ? await supabase.from("locations").select("id, display_code, location_code").in("zone_id", (zones ?? []).map((zone: { id: string }) => zone.id)).eq("is_active", true).order("location_code").limit(500)
     : { data: [], error: null };
   if (pickingError) return NextResponse.json({ error: "Unable to load picking locations." }, { status: 500 });
-  const pickingLocations = [...new Map((pickingBalances ?? []).filter((balance: any) => balance.locations?.is_active).map((balance: any) => [balance.location_id, { id: balance.location_id, code: balance.locations.display_code ?? balance.locations.location_code }])).values()];
+  const pickingLocations = (pickingRows ?? []).map((location: any) => ({ id: location.id, code: location.display_code ?? location.location_code }));
   return NextResponse.json({ order, serials: serials ?? [], pickingLocations, truncated: (serials?.length ?? 0) === MAX_SERIAL_OPTIONS });
 }
 

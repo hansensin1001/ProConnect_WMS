@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
       locationCode: location.location_code,
       onHand: Number(location.quantity_on_hand),
       reserved: Number(location.quantity_reserved),
-      available: Number(location.quantity_on_hand) - Number(location.quantity_reserved),
+      available: Number(location.quantity_available),
       inbound: Number(location.quantity_inbound),
       serialNumbers: serialsByLocation.get(location.location_id) ?? [],
     })),
