@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isSafeText, isUuid } from "@/lib/validation";
 
-const MAX_SERIAL_OPTIONS = 1_000;
+// Keep the native select lightweight. Barcode scanning and the batch endpoint
+// remain available for every valid serial, regardless of this preview cap.
+const MAX_SERIAL_OPTIONS = 100;
 
 export async function GET(request: NextRequest) {
   const orgId = request.nextUrl.searchParams.get("orgId");
@@ -47,4 +49,38 @@ export async function GET(request: NextRequest) {
     : { data: [], error: null };
   if (serialError) return NextResponse.json({ error: "Unable to load available serial numbers." }, { status: 500 });
   return NextResponse.json({ order, serials: serials ?? [], truncated: (serials?.length ?? 0) === MAX_SERIAL_OPTIONS });
+}
+
+// A pasted scanner batch used to issue one GET (and reload the entire order)
+// per serial. Validate a bounded batch in one scoped query instead.
+export async function POST(request: NextRequest) {
+  const body = await request.json().catch(() => null);
+  const orgId = body?.orgId;
+  const orderId = body?.orderId;
+  const orderItemId = body?.orderItemId;
+  const rawSerialNumbers: unknown[] = Array.isArray(body?.serialNumbers) ? body.serialNumbers : [];
+  const serialNumbers: string[] = [...new Set(rawSerialNumbers.map((value) => typeof value === "string" ? value.trim().toUpperCase() : "").filter((value): value is string => Boolean(value)))];
+  if (!isUuid(orgId) || !isUuid(orderId) || !isUuid(orderItemId) || !serialNumbers.length || serialNumbers.length > 500 || !serialNumbers.every((serial: string) => isSafeText(serial, 160, true))) return NextResponse.json({ error: "Invalid serial number scan." }, { status: 400 });
+
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const { data: membership } = await supabase.from("org_members").select("role").eq("org_id", orgId).eq("user_id", user.id).maybeSingle();
+  if (!membership || !["owner", "manager"].includes((membership as { role: string }).role)) return NextResponse.json({ error: "Manager or owner access is required." }, { status: 403 });
+
+  const { data: line, error: lineError } = await (supabase.from("order_items") as any)
+    .select("id, product_id, products!inner(is_serialized), sales_orders!inner(org_id), order_item_allocations(quantity_reserved, inventory_balances(location_id))")
+    .eq("id", orderItemId).eq("sales_order_id", orderId).eq("sales_orders.org_id", orgId).maybeSingle();
+  if (lineError) return NextResponse.json({ error: "Unable to verify serial numbers." }, { status: 500 });
+  const locationIds = [...new Set((line?.order_item_allocations ?? []).map((allocation: any) => allocation.inventory_balances?.location_id).filter(Boolean))];
+  if (!line?.products?.is_serialized || !locationIds.length) return NextResponse.json({ error: "This serialised line does not have an allocated bin." }, { status: 400 });
+
+  const { data: rows, error } = await (supabase.from("serial_numbers") as any)
+    .select("serial_number")
+    .eq("org_id", orgId).eq("product_id", line.product_id).eq("status", "IN_STOCK")
+    .in("serial_number", serialNumbers).in("location_id", locationIds);
+  if (error) return NextResponse.json({ error: "Unable to verify serial numbers." }, { status: 500 });
+  const accepted = (rows ?? []).map((row: { serial_number: string }) => row.serial_number);
+  const acceptedSet = new Set(accepted);
+  return NextResponse.json({ accepted, rejected: serialNumbers.filter((serial: string) => !acceptedSet.has(serial)) });
 }

@@ -12,7 +12,11 @@ export function InventorySearch({ initialQuery }: { initialQuery: string }) {
       const next = new URLSearchParams(params);
       if (query.trim()) next.set("q", query.trim()); else next.delete("q");
       next.delete("page");
-      router.replace(`${pathname}${next.size ? `?${next}` : ""}`);
+      const target = `${pathname}${next.size ? `?${next}` : ""}`;
+      const current = `${pathname}${params.size ? `?${params}` : ""}`;
+      // Avoid a needless server navigation on mount or when the normalized
+      // query has not changed. Each replace otherwise re-runs the page query.
+      if (target !== current) router.replace(target);
     }, 250);
     return () => window.clearTimeout(timer);
   }, [query, pathname, router, params]);

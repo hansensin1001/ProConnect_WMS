@@ -117,14 +117,11 @@ export function OrderManager({ orgId, orgName, canManage, initialOrders, product
     if (!processing || !values.length) return;
     setVerifyingSerials((state) => ({ ...state, [line.id]: true }));
     try {
-      const verified: string[] = [];
-      for (const serial of values) {
-        const response = await fetch(`/api/orders/serial-options?orgId=${encodeURIComponent(orgId)}&orderId=${encodeURIComponent(processing.id)}&orderItemId=${encodeURIComponent(line.id)}&serialNumber=${encodeURIComponent(serial)}`);
-        const payload = await response.json();
-        if (!response.ok) { setMessage(payload.error ?? `Unable to verify ${serial}.`); continue; }
-        verified.push(payload.serial.serial_number);
-      }
-      addShipmentSerials(line, verified);
+      const response = await fetch("/api/orders/serial-options", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orgId, orderId: processing.id, orderItemId: line.id, serialNumbers: values }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Unable to verify serial numbers.");
+      addShipmentSerials(line, payload.accepted ?? []);
+      if (payload.rejected?.length) setMessage(`${payload.rejected.join(", ")} is not active in an allocated bin for this order.`);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to verify the serial number."); }
     finally { setVerifyingSerials((state) => ({ ...state, [line.id]: false })); }
   }

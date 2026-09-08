@@ -11,11 +11,18 @@ export default async function OrdersPage({ searchParams }: { searchParams?: { pa
 
   const page = Math.max(1, Number.parseInt(searchParams?.page ?? "1", 10) || 1);
   const from = (page - 1) * PAGE_SIZE;
-  const { data, count } = await supabase
-    .from("sales_orders")
-    .select("id, order_number, platform, customer_name, shipping_address, shipping_city, shipping_postcode, status, created_at, order_items(id, product_id, quantity_requested, quantity_picked, quantity_reserved)", { count: "exact" })
-    .eq("org_id", ctx.org.id)
-    .order("created_at", { ascending: false }).range(from, from + PAGE_SIZE - 1);
+  const [{ data, count }, { data: productData }] = await Promise.all([
+    supabase
+      .from("sales_orders")
+      .select("id, order_number, platform, customer_name, shipping_address, shipping_city, shipping_postcode, status, created_at, order_items(id, product_id, quantity_requested, quantity_picked, quantity_reserved)", { count: "exact" })
+      .eq("org_id", ctx.org.id)
+      .order("created_at", { ascending: false }).range(from, from + PAGE_SIZE - 1),
+    supabase
+      .from("products")
+      .select("id, sku, name, unit_of_measure, is_serialized")
+      .eq("org_id", ctx.org.id)
+      .order("sku").limit(200),
+  ]);
 
   const orders = (data ?? []) as {
     id: string;
@@ -25,12 +32,6 @@ export default async function OrdersPage({ searchParams }: { searchParams?: { pa
     status: string;
     created_at: string;
   }[];
-
-  const { data: productData } = await supabase
-    .from("products")
-    .select("id, sku, name, unit_of_measure, is_serialized")
-    .eq("org_id", ctx.org.id)
-    .order("sku").limit(200);
 
   return (
     <div>

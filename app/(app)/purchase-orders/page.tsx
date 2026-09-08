@@ -15,8 +15,11 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
     supabase.from("warehouses").select("id").eq("org_id", ctx.org.id),
   ]);
   const warehouseIds = (warehouses ?? []).map((warehouse: { id: string }) => warehouse.id);
+  // A purchase-order drawer needs a compact starter list, not every bin in a
+  // tenant. The remaining locations are available through the paginated
+  // location-options endpoint when a user searches for a bin.
   const { data: locations } = warehouseIds.length
-    ? await supabase.from("locations").select("id, display_code, location_code, warehouse_zones!inner(warehouse_id)").in("warehouse_zones.warehouse_id", warehouseIds)
+    ? await supabase.from("locations").select("id, display_code, location_code, warehouse_zones!inner(warehouse_id)").in("warehouse_zones.warehouse_id", warehouseIds).eq("is_active", true).order("location_code").limit(200)
     : { data: [] };
   return <div><PageHeader title="Purchase Orders" subtitle={`Inbound stock for ${ctx.org.name}`} /><div className="p-8"><PurchaseOrderManager orgId={ctx.org.id} canManage={ctx.role === "owner" || ctx.role === "manager"} initialOrders={(orders ?? []) as any[]} products={(products ?? []) as any[]} locations={(locations ?? []) as any[]} page={page} total={count ?? 0} /></div></div>;
 }

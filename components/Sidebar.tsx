@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import {
   LayoutGrid,
@@ -29,6 +29,7 @@ const SCAN_NAV = { href: "/scan", label: "Scan", icon: ScanLine };
 
 export function Sidebar({ orgName, isPlatformAdmin }: { orgName: string; isPlatformAdmin: boolean }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { signOut } = useAuth();
 
   async function handleSignOut() {
@@ -49,6 +50,8 @@ export function Sidebar({ orgName, isPlatformAdmin }: { orgName: string; isPlatf
             <Link
               key={href}
               href={href}
+              prefetch
+              onMouseEnter={() => router.prefetch(href)}
               className={clsx(
                 "flex items-center gap-3 px-3 py-2 text-sm transition-colors",
                 active
@@ -64,6 +67,8 @@ export function Sidebar({ orgName, isPlatformAdmin }: { orgName: string; isPlatf
         {isPlatformAdmin && (
           <Link
             href="/admin/users"
+            prefetch
+            onMouseEnter={() => router.prefetch("/admin/users")}
             className={clsx(
               "flex items-center gap-3 px-3 py-2 text-sm transition-colors",
               pathname.startsWith("/admin")
