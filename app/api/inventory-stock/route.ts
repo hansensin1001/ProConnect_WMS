@@ -3,6 +3,19 @@ import { createClient } from "@/lib/supabase/server";
 import { isUuid } from "@/lib/validation";
 
 const PAGE_SIZE = 100;
+const firstRelation = <T,>(value: T | T[] | null | undefined): T | undefined => Array.isArray(value) ? value[0] : value ?? undefined;
+
+function locationDetails(locationId: string, relation: any) {
+  const location = firstRelation<any>(relation);
+  const zone = firstRelation<any>(location?.warehouse_zones);
+  const warehouse = firstRelation<any>(zone?.warehouses);
+  return {
+    locationId,
+    locationCode: location?.display_code ?? location?.location_code ?? "Unknown bin",
+    zoneCode: zone?.zone_code ?? "Unknown zone",
+    warehouseName: warehouse?.name ?? warehouse?.code ?? "Unknown warehouse",
+  };
+}
 
 // Bin details are deliberately loaded only after a user opens SKU details.
 // The Inventory list itself stays compact regardless of warehouse size.
@@ -71,14 +84,14 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     stock: [...[...(data ?? []).reduce((byLocation: Map<string, any>, balance: any) => {
-      const existing = byLocation.get(balance.location_id) ?? { locationId: balance.location_id, locationCode: balance.locations?.display_code ?? balance.locations?.location_code ?? "Unknown bin", zoneCode: balance.locations?.warehouse_zones?.zone_code ?? "Unknown zone", warehouseName: balance.locations?.warehouse_zones?.warehouses?.name ?? balance.locations?.warehouse_zones?.warehouses?.code ?? "Unknown warehouse", onHand: 0, reserved: 0, serialNumbers: serialsByLocation.get(balance.location_id) ?? [] };
+      const existing = byLocation.get(balance.location_id) ?? { ...locationDetails(balance.location_id, balance.locations), onHand: 0, reserved: 0, serialNumbers: serialsByLocation.get(balance.location_id) ?? [] };
       existing.onHand += Number(balance.quantity_on_hand);
       existing.reserved += Number(balance.quantity_reserved);
       byLocation.set(balance.location_id, existing);
       return byLocation;
     }, new Map<string, any>()).entries(), ...(inboundRows ?? []).map((row: any) => [row.location_id, row] as const)].reduce((byLocation: Map<string, any>, entry: any) => {
       const [locationId, inbound] = entry;
-      const existing = byLocation.get(locationId) ?? { locationId, locationCode: inbound.locations?.display_code ?? inbound.locations?.location_code ?? "Unknown bin", zoneCode: inbound.locations?.warehouse_zones?.zone_code ?? "Unknown zone", warehouseName: inbound.locations?.warehouse_zones?.warehouses?.name ?? inbound.locations?.warehouse_zones?.warehouses?.code ?? "Unknown warehouse", onHand: 0, reserved: 0, serialNumbers: serialsByLocation.get(locationId) ?? [] };
+      const existing = byLocation.get(locationId) ?? { ...locationDetails(locationId, inbound.locations), onHand: 0, reserved: 0, serialNumbers: serialsByLocation.get(locationId) ?? [] };
       if (inbound.quantity_expected != null) existing.inbound = (existing.inbound ?? 0) + Math.max(0, Number(inbound.quantity_expected) - Number(inbound.quantity_received));
       byLocation.set(locationId, existing);
       return byLocation;
