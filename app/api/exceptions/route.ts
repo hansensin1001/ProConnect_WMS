@@ -20,7 +20,7 @@ function fail(error: unknown) {
   // These are operational messages shown only after the caller passed the
   // manager authorization check. They make incomplete SQL deployments and
   // invalid exception actions actionable without exposing credentials.
-  const safe = /^(Unauthorized|Manager or owner access is required|Invalid|Purchase order|Sales order|RTV|Cycle count|A reason|Only |RTV quantity|insufficient|received quantity|serialised|function |relation |column |permission denied|new row|duplicate key|cycle count has)/i.test(message);
+  const safe = /^(Unauthorized|Manager or owner access is required|Invalid|Purchase order|Sales order|RMA|RTV|Cycle count|A reason|Only |receipt or rejection|rejected|select a bin|insufficient|received quantity|serialised|function |relation |column |permission denied|new row|duplicate key|cycle count has)/i.test(message);
   return NextResponse.json({ error: safe ? message : "Unable to process the exception workflow." }, { status: message.includes("access") ? 403 : 400 });
 }
 
@@ -45,16 +45,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json(); if (!isUuid(body?.orgId) || typeof body?.action !== "string") throw new Error("Invalid exception request.");
     const supabase = await requireManager(body.orgId); let data: unknown; let error: unknown;
     if (body.action === "partialReceipt") {
-      if (!isUuid(body.orderId) || !Array.isArray(body.receipts) || !body.receipts.every((item: any) => isUuid(item.purchaseOrderItemId) && isPositiveInteger(item.quantity, 100_000) && ["AVAILABLE", "QUARANTINE"].includes(item.disposition))) throw new Error("Invalid receipt lines.");
-      ({ data, error } = await (supabase.rpc as any)("receive_purchase_order_partial", { p_purchase_order_id: body.orderId, p_receipts: body.receipts.map((item: any) => ({ purchase_order_item_id: item.purchaseOrderItemId, quantity: item.quantity, disposition: item.disposition })) }));
+      if (!isUuid(body.orderId) || !Array.isArray(body.receipts) || !body.receipts.every((item: any) => isUuid(item.purchaseOrderItemId) && isPositiveInteger(item.quantity, 100_000) && ["AVAILABLE", "REJECTED", "QUARANTINE"].includes(item.disposition))) throw new Error("Invalid receipt lines.");
+      ({ data, error } = await (supabase.rpc as any)("receive_purchase_order_partial", { p_purchase_order_id: body.orderId, p_receipts: body.receipts.map((item: any) => ({ purchase_order_item_id: item.purchaseOrderItemId, quantity: item.quantity, disposition: item.disposition === "QUARANTINE" ? "REJECTED" : item.disposition, rejected_serials: Array.isArray(item.rejectedSerials) ? item.rejectedSerials : [] })) }));
     } else if (body.action === "createRtv") {
       if (!isSafeText(body.supplierName, 100, true) || !validLines(body.lines, true)) throw new Error("Invalid RTV lines.");
       ({ data, error } = await (supabase.rpc as any)("create_return_to_vendor", { p_org_id: body.orgId, p_supplier_name: body.supplierName.trim(), p_lines: body.lines.map((line: any) => ({ product_id: line.productId, location_id: line.locationId, quantity: line.quantity, reason: line.reason.trim() })) }));
     } else if (body.action === "dispatchRtv") {
       if (!isUuid(body.rtvId)) throw new Error("Invalid RTV."); ({ data, error } = await (supabase.rpc as any)("dispatch_return_to_vendor", { p_rtv_id: body.rtvId }));
     } else if (body.action === "createRma") {
-      if ((body.salesOrderId != null && !isUuid(body.salesOrderId)) || !validLines(body.lines, true) || !body.lines.every((line: any) => ["QUARANTINE", "REPAIR"].includes(line.disposition))) throw new Error("Invalid RMA lines.");
-      ({ data, error } = await (supabase.rpc as any)("create_rma_and_receive", { p_org_id: body.orgId, p_sales_order_id: body.salesOrderId ?? null, p_customer_name: isSafeText(body.customerName, 100) ? body.customerName.trim() : "", p_lines: body.lines.map((line: any) => ({ product_id: line.productId, location_id: line.locationId, quantity: line.quantity, disposition: line.disposition, reason: line.reason.trim() })) }));
+      if (!isUuid(body.salesOrderId) || !validLines(body.lines, true) || !body.lines.every((line: any) => ["PUTAWAY", "QUARANTINE"].includes(line.disposition))) throw new Error("Invalid RMA lines.");
+      ({ data, error } = await (supabase.rpc as any)("create_rma_and_receive", { p_org_id: body.orgId, p_sales_order_id: body.salesOrderId, p_customer_name: isSafeText(body.customerName, 100) ? body.customerName.trim() : "", p_lines: body.lines.map((line: any) => ({ product_id: line.productId, location_id: line.locationId, quantity: line.quantity, disposition: line.disposition, reason: line.reason.trim() })) }));
     } else if (body.action === "submitCycleCount") {
       if (!Array.isArray(body.lines) || !body.lines.length || !body.lines.every((line: any) => isUuid(line.productId) && isUuid(line.locationId) && Number.isInteger(line.physicalQuantity) && line.physicalQuantity >= 0 && (line.reasonCode == null || ["DAMAGED","MISSING","MISPLACED","COUNT_ERROR","OTHER"].includes(line.reasonCode)))) throw new Error("Invalid cycle-count lines.");
       ({ data, error } = await (supabase.rpc as any)("submit_cycle_count", { p_org_id: body.orgId, p_lines: body.lines.map((line: any) => ({ product_id: line.productId, location_id: line.locationId, physical_quantity: line.physicalQuantity, reason_code: line.reasonCode ?? "" })) }));

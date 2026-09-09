@@ -1,12 +1,12 @@
 -- Exception handling is ledger-first: quarantined stock is never included in
 -- quantity_on_hand, and every reconciliation action retains its source record.
 
-create extension if not exists "uuid-ossp";
+create extension if not exists pgcrypto;
 
 alter table public.inventory_balances add column if not exists quantity_quarantined integer not null default 0 check (quantity_quarantined >= 0);
 
 create table if not exists public.mispick_attempts (
-  id uuid primary key default uuid_generate_v4(), org_id uuid not null references public.organizations(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(), org_id uuid not null references public.organizations(id) on delete cascade,
   sales_order_id uuid references public.sales_orders(id) on delete set null, order_item_id uuid references public.order_items(id) on delete set null,
   scanned_value varchar(160) not null, expected_product_id uuid references public.products(id) on delete set null,
   reason_code varchar(50) not null check (reason_code in ('WRONG_SKU','WRONG_SERIAL','WRONG_BIN','NOT_ALLOCATED')),
@@ -14,41 +14,51 @@ create table if not exists public.mispick_attempts (
 );
 
 create table if not exists public.return_to_vendor (
-  id uuid primary key default uuid_generate_v4(), org_id uuid not null references public.organizations(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(), org_id uuid not null references public.organizations(id) on delete cascade,
   rtv_number varchar(50) not null, supplier_name varchar(100) not null, status varchar(30) not null default 'PENDING' check (status in ('PENDING','SHIPPED','CANCELLED')),
   created_by uuid references auth.users(id) on delete set null, created_at timestamptz not null default now(),
   updated_by uuid references auth.users(id) on delete set null, updated_at timestamptz not null default now(), unique(org_id, rtv_number)
 );
 create table if not exists public.return_to_vendor_items (
-  id uuid primary key default uuid_generate_v4(), rtv_id uuid not null references public.return_to_vendor(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(), rtv_id uuid not null references public.return_to_vendor(id) on delete cascade,
   product_id uuid not null references public.products(id), location_id uuid not null references public.locations(id), quantity integer not null check (quantity > 0), reason varchar(250) not null
 );
 
 create table if not exists public.rmas (
-  id uuid primary key default uuid_generate_v4(), org_id uuid not null references public.organizations(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(), org_id uuid not null references public.organizations(id) on delete cascade,
   rma_number varchar(50) not null, sales_order_id uuid references public.sales_orders(id) on delete set null,
   customer_name varchar(100), status varchar(30) not null default 'OPEN' check (status in ('OPEN','RECEIVED','CLOSED','CANCELLED')),
   created_by uuid references auth.users(id) on delete set null, created_at timestamptz not null default now(),
   updated_by uuid references auth.users(id) on delete set null, updated_at timestamptz not null default now(), unique(org_id, rma_number)
 );
 create table if not exists public.rma_items (
-  id uuid primary key default uuid_generate_v4(), rma_id uuid not null references public.rmas(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(), rma_id uuid not null references public.rmas(id) on delete cascade,
   product_id uuid not null references public.products(id), location_id uuid not null references public.locations(id),
   quantity_received integer not null check (quantity_received > 0), disposition varchar(20) not null check (disposition in ('QUARANTINE','REPAIR')), reason varchar(250) not null
 );
 
 create table if not exists public.cycle_counts (
-  id uuid primary key default uuid_generate_v4(), org_id uuid not null references public.organizations(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(), org_id uuid not null references public.organizations(id) on delete cascade,
   count_number varchar(50) not null, status varchar(30) not null default 'PENDING_APPROVAL' check (status in ('PENDING_APPROVAL','APPROVED','REJECTED')),
   counted_by uuid references auth.users(id) on delete set null, counted_at timestamptz not null default now(),
   approved_by uuid references auth.users(id) on delete set null, approved_at timestamptz, created_at timestamptz not null default now(), unique(org_id, count_number)
 );
 create table if not exists public.cycle_count_items (
-  id uuid primary key default uuid_generate_v4(), cycle_count_id uuid not null references public.cycle_counts(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(), cycle_count_id uuid not null references public.cycle_counts(id) on delete cascade,
   product_id uuid not null references public.products(id), location_id uuid not null references public.locations(id),
   system_quantity integer not null, physical_quantity integer not null check (physical_quantity >= 0), reason_code varchar(40), unique(cycle_count_id, product_id, location_id),
   check ((physical_quantity = system_quantity and reason_code is null) or (physical_quantity <> system_quantity and reason_code in ('DAMAGED','MISSING','MISPLACED','COUNT_ERROR','OTHER')))
 );
+
+-- Correct defaults on deployments created before this migration switched from
+-- uuid-ossp to Supabase's pgcrypto UUID generator.
+alter table public.mispick_attempts alter column id set default gen_random_uuid();
+alter table public.return_to_vendor alter column id set default gen_random_uuid();
+alter table public.return_to_vendor_items alter column id set default gen_random_uuid();
+alter table public.rmas alter column id set default gen_random_uuid();
+alter table public.rma_items alter column id set default gen_random_uuid();
+alter table public.cycle_counts alter column id set default gen_random_uuid();
+alter table public.cycle_count_items alter column id set default gen_random_uuid();
 
 create index if not exists idx_mispicks_org_created on public.mispick_attempts(org_id, created_at desc);
 create index if not exists idx_rtv_org_status on public.return_to_vendor(org_id, status, created_at desc);
@@ -87,7 +97,7 @@ end; $$;
 
 create or replace function public.create_rma_and_receive(p_org_id uuid,p_sales_order_id uuid,p_customer_name text,p_lines jsonb)
 returns uuid language plpgsql security definer set search_path=public as $$
-declare v_id uuid:=uuid_generate_v4(); v_number text; v_line record;
+declare v_id uuid:=gen_random_uuid(); v_number text; v_line record;
 begin
   if not public.is_org_role(p_org_id,array['owner','manager']) then raise exception 'manager or owner access is required'; end if;
   select coalesce(max(nullif(regexp_replace(rma_number,'[^0-9]','','g'), '')::integer),0)+1 into v_number from public.rmas where org_id=p_org_id;
@@ -101,7 +111,7 @@ end; $$;
 
 create or replace function public.submit_cycle_count(p_org_id uuid,p_lines jsonb)
 returns uuid language plpgsql security definer set search_path=public as $$
-declare v_id uuid:=uuid_generate_v4(); v_number text; v_line record; v_system integer;
+declare v_id uuid:=gen_random_uuid(); v_number text; v_line record; v_system integer;
 begin
   if not public.is_org_role(p_org_id,array['owner','manager']) then raise exception 'manager or owner access is required'; end if;
   select coalesce(max(nullif(regexp_replace(count_number,'[^0-9]','','g'), '')::integer),0)+1 into v_number from public.cycle_counts where org_id=p_org_id;
@@ -173,7 +183,7 @@ end; $$;
 
 create or replace function public.create_return_to_vendor(p_org_id uuid,p_supplier_name text,p_lines jsonb)
 returns uuid language plpgsql security definer set search_path=public as $$
-declare v_id uuid:=uuid_generate_v4(); v_number text; v_line record;
+declare v_id uuid:=gen_random_uuid(); v_number text; v_line record;
 begin
   if not public.is_org_role(p_org_id,array['owner','manager']) then raise exception 'manager or owner access is required'; end if;
   if nullif(btrim(p_supplier_name),'') is null then raise exception 'supplier name is required'; end if;
