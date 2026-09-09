@@ -96,5 +96,11 @@ export async function POST(request: NextRequest) {
   if (error) return NextResponse.json({ error: "Unable to verify serial numbers." }, { status: 500 });
   const accepted = (rows ?? []).map((row: { serial_number: string }) => row.serial_number);
   const acceptedSet = new Set(accepted);
-  return NextResponse.json({ accepted, rejected: serialNumbers.filter((serial: string) => !acceptedSet.has(serial)) });
+  const rejected = serialNumbers.filter((serial: string) => !acceptedSet.has(serial));
+  if (rejected.length) {
+    // The client keeps the invalid scan out of the fulfillment selection; this
+    // audit record makes wrong-serial attempts visible to managers.
+    await (supabase.rpc as any)("log_mispick_attempt", { p_org_id: orgId, p_sales_order_id: orderId, p_order_item_id: orderItemId, p_scanned_value: rejected[0], p_reason_code: "WRONG_SERIAL" });
+  }
+  return NextResponse.json({ accepted, rejected });
 }

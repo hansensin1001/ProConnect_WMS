@@ -8,6 +8,7 @@ import {
   Package,
   MapPinned,
   ClipboardList,
+  ClipboardX,
   Truck,
   ScanLine,
   BarChart3,
@@ -25,6 +26,7 @@ const NAV = [
   { href: "/orders", label: "Sales Orders", icon: ClipboardList },
   { href: "/purchase-orders", label: "Purchase Orders", icon: Truck },
   { href: "/reports", label: "Reports", icon: BarChart3 },
+  { href: "/exceptions", label: "Exceptions", icon: ClipboardX },
 ];
 const SCAN_NAV = { href: "/scan", label: "Scan", icon: ScanLine };
 
