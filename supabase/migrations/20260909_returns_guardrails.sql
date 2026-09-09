@@ -101,8 +101,8 @@ begin
   if nullif(btrim(p_supplier_name),'') is null then raise exception 'supplier name is required'; end if;
   select coalesce(max(nullif(regexp_replace(rtv_number,'[^0-9]','','g'), '')::integer),0)+1 into v_number from public.return_to_vendor where org_id=p_org_id;
   insert into public.return_to_vendor(id,org_id,rtv_number,supplier_name,created_by,updated_by) values(v_id,p_org_id,'RTV'||v_number,btrim(p_supplier_name),auth.uid(),auth.uid());
-  for v_line in select * from jsonb_to_recordset(p_lines) as x(product_id uuid,location_id uuid,quantity integer,reason text) loop
-    if v_line.quantity is null or v_line.quantity<=0 or nullif(btrim(v_line.reason),'') is null then raise exception 'invalid RTV line'; end if;
+  for v_line in select * from jsonb_to_recordset(p_lines) as x(purchase_order_id uuid,product_id uuid,location_id uuid,quantity integer,reason text) loop
+    if v_line.purchase_order_id is null or v_line.quantity is null or v_line.quantity<=0 or nullif(btrim(v_line.reason),'') is null then raise exception 'invalid RTV line'; end if;
     if not exists(
       select 1
       from public.inventory_balances b
@@ -112,6 +112,7 @@ begin
       join public.purchase_orders po on po.id=poi.purchase_order_id
       where b.product_id=v_line.product_id
         and b.location_id=v_line.location_id
+        and poi.purchase_order_id=v_line.purchase_order_id
         and z.zone_type='STORAGE'
         and b.quantity_on_hand-b.quantity_reserved >= v_line.quantity
         and poi.quantity_received>0

@@ -48,8 +48,8 @@ export async function POST(request: NextRequest) {
       if (!isUuid(body.orderId) || !Array.isArray(body.receipts) || !body.receipts.every((item: any) => isUuid(item.purchaseOrderItemId) && isPositiveInteger(item.quantity, 100_000) && ["AVAILABLE", "REJECTED", "QUARANTINE"].includes(item.disposition))) throw new Error("Invalid receipt lines.");
       ({ data, error } = await (supabase.rpc as any)("receive_purchase_order_partial", { p_purchase_order_id: body.orderId, p_receipts: body.receipts.map((item: any) => ({ purchase_order_item_id: item.purchaseOrderItemId, quantity: item.quantity, disposition: item.disposition === "QUARANTINE" ? "REJECTED" : item.disposition, rejected_serials: Array.isArray(item.rejectedSerials) ? item.rejectedSerials : [] })) }));
     } else if (body.action === "createRtv") {
-      if (!isSafeText(body.supplierName, 100, true) || !validLines(body.lines, true)) throw new Error("Invalid RTV lines.");
-      ({ data, error } = await (supabase.rpc as any)("create_return_to_vendor", { p_org_id: body.orgId, p_supplier_name: body.supplierName.trim(), p_lines: body.lines.map((line: any) => ({ product_id: line.productId, location_id: line.locationId, quantity: line.quantity, reason: line.reason.trim() })) }));
+      if (!isSafeText(body.supplierName, 100, true) || !validLines(body.lines, true) || !body.lines.every((line: any) => isUuid(line.purchaseOrderId))) throw new Error("Select the accepted purchase order for every RTV line.");
+      ({ data, error } = await (supabase.rpc as any)("create_return_to_vendor", { p_org_id: body.orgId, p_supplier_name: body.supplierName.trim(), p_lines: body.lines.map((line: any) => ({ purchase_order_id: line.purchaseOrderId, product_id: line.productId, location_id: line.locationId, quantity: line.quantity, reason: line.reason.trim() })) }));
     } else if (body.action === "dispatchRtv") {
       if (!isUuid(body.rtvId)) throw new Error("Invalid RTV."); ({ data, error } = await (supabase.rpc as any)("dispatch_return_to_vendor", { p_rtv_id: body.rtvId }));
     } else if (body.action === "createRma") {
