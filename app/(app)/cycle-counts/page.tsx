@@ -1,0 +1,5 @@
+import { CycleCountConsole } from "@/components/CycleCountConsole";
+import { PageHeader } from "@/components/PageHeader";
+import { getCurrentOrgContext } from "@/lib/org";
+import { createClient } from "@/lib/supabase/server";
+export default async function CycleCountsPage(){const ctx=await getCurrentOrgContext();if(!ctx?.org)return null;const s=createClient();const[p,b]=await Promise.all([s.from("products").select("id,sku,name").eq("org_id",ctx.org.id).order("sku").limit(300),s.from("locations").select("id,location_code,display_code,warehouse_zones!inner(warehouses!inner(org_id))").eq("warehouse_zones.warehouses.org_id",ctx.org.id).limit(300)]);return <div><PageHeader title="Cycle Counts" subtitle="Blind counts with discrepancy reasons and manager approval"/><div className="p-8">{ctx.role==="owner"||ctx.role==="manager"?<CycleCountConsole orgId={ctx.org.id} products={(p.data??[])as any} bins={(b.data??[])as any}/>:<p className="text-sm text-graphite">Manager or owner access is required.</p>}</div></div>}

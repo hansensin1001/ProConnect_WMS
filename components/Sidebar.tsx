@@ -8,8 +8,9 @@ import {
   Package,
   MapPinned,
   ClipboardList,
-  ClipboardX,
+  ClipboardCheck,
   Truck,
+  RotateCcw,
   ScanLine,
   BarChart3,
   ShieldCheck,
@@ -26,7 +27,8 @@ const NAV = [
   { href: "/orders", label: "Sales Orders", icon: ClipboardList },
   { href: "/purchase-orders", label: "Purchase Orders", icon: Truck },
   { href: "/reports", label: "Reports", icon: BarChart3 },
-  { href: "/exceptions", label: "Exceptions", icon: ClipboardX },
+  { href: "/returns", label: "Returns", icon: RotateCcw },
+  { href: "/cycle-counts", label: "Cycle Counts", icon: ClipboardCheck },
 ];
 const SCAN_NAV = { href: "/scan", label: "Scan", icon: ScanLine };
 

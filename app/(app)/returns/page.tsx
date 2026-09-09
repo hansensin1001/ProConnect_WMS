@@ -1,0 +1,5 @@
+import { ReturnsConsole } from "@/components/ReturnsConsole";
+import { PageHeader } from "@/components/PageHeader";
+import { getCurrentOrgContext } from "@/lib/org";
+import { createClient } from "@/lib/supabase/server";
+export default async function ReturnsPage(){const ctx=await getCurrentOrgContext();if(!ctx?.org)return null;const s=createClient();const[p,b]=await Promise.all([s.from("products").select("id,sku,name").eq("org_id",ctx.org.id).order("sku").limit(300),s.from("locations").select("id,location_code,display_code,warehouse_zones!inner(warehouses!inner(org_id))").eq("warehouse_zones.warehouses.org_id",ctx.org.id).limit(300)]);return <div><PageHeader title="Returns" subtitle="Customer RMAs and vendor RTVs; damaged stock is held in quarantine"/><div className="p-8">{ctx.role==="owner"||ctx.role==="manager"?<ReturnsConsole orgId={ctx.org.id} products={(p.data??[])as any} bins={(b.data??[])as any}/>:<p className="text-sm text-graphite">Manager or owner access is required.</p>}</div></div>}
