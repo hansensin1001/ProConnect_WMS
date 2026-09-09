@@ -15,7 +15,14 @@ async function requireManager(orgId: string) {
 function validLines(lines: unknown, extra = false) {
   return Array.isArray(lines) && lines.length > 0 && lines.length <= 100 && lines.every((line) => typeof line === "object" && line !== null && isUuid((line as any).productId) && isUuid((line as any).locationId) && isPositiveInteger((line as any).quantity, 100_000) && (!extra || isSafeText((line as any).reason, 250, true)));
 }
-function fail(error: unknown) { const message = error instanceof Error ? error.message : "Unable to process the exception workflow."; return NextResponse.json({ error: /^(Unauthorized|Manager or owner access is required|Invalid|Purchase order|Sales order|RTV|Cycle count|A reason|Only |RTV quantity|insufficient|received quantity|serialised)/i.test(message) ? message : "Unable to process the exception workflow." }, { status: message.includes("access") ? 403 : 400 }); }
+function fail(error: unknown) {
+  const message = error instanceof Error ? error.message : "Unable to process the exception workflow.";
+  // These are operational messages shown only after the caller passed the
+  // manager authorization check. They make incomplete SQL deployments and
+  // invalid exception actions actionable without exposing credentials.
+  const safe = /^(Unauthorized|Manager or owner access is required|Invalid|Purchase order|Sales order|RTV|Cycle count|A reason|Only |RTV quantity|insufficient|received quantity|serialised|function |relation |column |permission denied|new row|duplicate key|cycle count has)/i.test(message);
+  return NextResponse.json({ error: safe ? message : "Unable to process the exception workflow." }, { status: message.includes("access") ? 403 : 400 });
+}
 
 export async function GET(request: NextRequest) {
   try {
