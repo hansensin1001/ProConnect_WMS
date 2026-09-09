@@ -1,0 +1,5 @@
+import { PartialShipmentConsole } from "@/components/PartialShipmentConsole";
+import { PageHeader } from "@/components/PageHeader";
+import { getCurrentOrgContext } from "@/lib/org";
+import { createClient } from "@/lib/supabase/server";
+export default async function PartialShipmentsPage(){const ctx=await getCurrentOrgContext();if(!ctx?.org)return null;const s=createClient();const{data}=await s.from("sales_orders").select("id,order_number,status,order_items(id,quantity_requested,quantity_picked,remaining_qty,products(sku))").eq("org_id",ctx.org.id).in("status",["ALLOCATED","PARTIALLY_SHIPPED"]).order("created_at",{ascending:false}).limit(100);return <div><PageHeader title="Partial Shipments" subtitle="Dispatch available SO quantities while keeping remaining stock on backorder"/><div className="p-8">{ctx.role==="owner"||ctx.role==="manager"?<PartialShipmentConsole orgId={ctx.org.id} orders={(data??[])as any}/>:<p className="text-sm text-graphite">Manager or owner access is required.</p>}</div></div>}

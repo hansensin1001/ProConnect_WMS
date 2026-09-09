@@ -25,6 +25,7 @@ const NAV = [
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/locations", label: "Locations", icon: MapPinned },
   { href: "/orders", label: "Sales Orders", icon: ClipboardList },
+  { href: "/partial-shipments", label: "Partial Shipments", icon: Truck },
   { href: "/purchase-orders", label: "Purchase Orders", icon: Truck },
   { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/returns", label: "Returns", icon: RotateCcw },
