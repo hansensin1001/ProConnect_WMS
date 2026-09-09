@@ -196,6 +196,13 @@ begin
 end; $$;
 
 alter table public.mispick_attempts enable row level security; alter table public.return_to_vendor enable row level security; alter table public.return_to_vendor_items enable row level security; alter table public.rmas enable row level security; alter table public.rma_items enable row level security; alter table public.cycle_counts enable row level security; alter table public.cycle_count_items enable row level security;
+drop policy if exists mispicks_read on public.mispick_attempts;
+drop policy if exists rtv_read on public.return_to_vendor;
+drop policy if exists rma_read on public.rmas;
+drop policy if exists cycle_read on public.cycle_counts;
+drop policy if exists rtv_items_read on public.return_to_vendor_items;
+drop policy if exists rma_items_read on public.rma_items;
+drop policy if exists cycle_items_read on public.cycle_count_items;
 create policy mispicks_read on public.mispick_attempts for select using (public.is_org_member(org_id));
 create policy rtv_read on public.return_to_vendor for select using (public.is_org_member(org_id));
 create policy rma_read on public.rmas for select using (public.is_org_member(org_id));
