@@ -16,7 +16,7 @@ function validLines(lines: unknown, extra = false) {
   return Array.isArray(lines) && lines.length > 0 && lines.length <= 100 && lines.every((line) => typeof line === "object" && line !== null && isUuid((line as any).productId) && isUuid((line as any).locationId) && isPositiveInteger((line as any).quantity, 100_000) && (!extra || isSafeText((line as any).reason, 250, true)));
 }
 function fail(error: unknown) {
-  const message = error instanceof Error ? error.message : "Unable to process the exception workflow.";
+  const message = error instanceof Error ? error.message : typeof error === "object" && error !== null && typeof (error as { message?: unknown }).message === "string" ? (error as { message: string }).message : "Unable to process the exception workflow.";
   // These are operational messages shown only after the caller passed the
   // manager authorization check. They make incomplete SQL deployments and
   // invalid exception actions actionable without exposing credentials.

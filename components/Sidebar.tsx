@@ -29,7 +29,8 @@ const NAV = [
   { href: "/purchase-orders", label: "Purchase Orders", icon: Truck },
   { href: "/partial-receipts", label: "Partial Receipts", icon: Truck },
   { href: "/reports", label: "Reports", icon: BarChart3 },
-  { href: "/returns", label: "Returns", icon: RotateCcw },
+  { href: "/rma-returns", label: "Customer Returns", icon: RotateCcw },
+  { href: "/rtv-returns", label: "Vendor Returns", icon: RotateCcw },
   { href: "/cycle-counts", label: "Cycle Counts", icon: ClipboardCheck },
 ];
 const SCAN_NAV = { href: "/scan", label: "Scan", icon: ScanLine };
