@@ -1,6 +1,8 @@
 -- Exception handling is ledger-first: quarantined stock is never included in
 -- quantity_on_hand, and every reconciliation action retains its source record.
 
+create extension if not exists "uuid-ossp";
+
 alter table public.inventory_balances add column if not exists quantity_quarantined integer not null default 0 check (quantity_quarantined >= 0);
 
 create table if not exists public.mispick_attempts (
