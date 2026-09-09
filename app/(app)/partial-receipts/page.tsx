@@ -1,0 +1,5 @@
+import { PartialReceiptConsole } from "@/components/PartialReceiptConsole";
+import { PageHeader } from "@/components/PageHeader";
+import { getCurrentOrgContext } from "@/lib/org";
+import { createClient } from "@/lib/supabase/server";
+export default async function PartialReceiptsPage(){const ctx=await getCurrentOrgContext();if(!ctx?.org)return null;const s=createClient();const{data}=await s.from("purchase_orders").select("id,po_number,status,purchase_order_items(id,quantity_expected,quantity_received,remaining_qty,products(sku))").eq("org_id",ctx.org.id).in("status",["PENDING","PARTIALLY_RECEIVED"]).order("created_at",{ascending:false}).limit(100);return <div><PageHeader title="Partial Receipts" subtitle="Receive available PO quantities and keep backordered balances open"/><div className="p-8">{ctx.role==="owner"||ctx.role==="manager"?<PartialReceiptConsole orgId={ctx.org.id} orders={(data??[])as any}/>:<p className="text-sm text-graphite">Manager or owner access is required.</p>}</div></div>}

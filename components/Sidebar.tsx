@@ -27,6 +27,7 @@ const NAV = [
   { href: "/orders", label: "Sales Orders", icon: ClipboardList },
   { href: "/partial-shipments", label: "Partial Shipments", icon: Truck },
   { href: "/purchase-orders", label: "Purchase Orders", icon: Truck },
+  { href: "/partial-receipts", label: "Partial Receipts", icon: Truck },
   { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/returns", label: "Returns", icon: RotateCcw },
   { href: "/cycle-counts", label: "Cycle Counts", icon: ClipboardCheck },
