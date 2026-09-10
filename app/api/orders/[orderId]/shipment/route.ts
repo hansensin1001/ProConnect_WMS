@@ -77,9 +77,16 @@ export async function POST(request: NextRequest, { params }: { params: { orderId
         .eq("id", body.carrierId).eq("organization_id", body.orgId).maybeSingle();
       if (carrierError) throw carrierError;
       if (!carrier || !carrier.is_active) throw new Error("The selected carrier is unavailable for this organization.");
+      const [{ data: organization, error: organizationError }, { data: warehouse, error: warehouseError }] = await Promise.all([
+        (admin.from("organizations") as any).select("name, code").eq("id", body.orgId).maybeSingle(),
+        (admin.from("warehouses") as any).select("name, code, address").eq("org_id", body.orgId).order("code").limit(1).maybeSingle(),
+      ]);
+      if (organizationError || warehouseError) throw organizationError ?? warehouseError;
       const requestData: ShipmentRequest = {
         orderId: order.id,
         orderNumber: order.order_number,
+        senderName: warehouse?.name ? `${organization?.name ?? "ProConnect WMS"} / ${warehouse.name}` : organization?.name ?? "ProConnect WMS",
+        senderAddress: warehouse?.address?.trim() || warehouse?.code || organization?.code || "",
         customerName: order.customer_name.trim(),
         shippingAddress: order.shipping_address.trim(),
         shippingCity: order.shipping_city?.trim() ?? "",

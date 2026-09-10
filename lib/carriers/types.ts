@@ -33,6 +33,8 @@ export type CarrierSummary = Omit<CarrierSettings, "encrypted_credentials"> & {
 export type ShipmentRequest = {
   orderId: string;
   orderNumber: string;
+  senderName: string;
+  senderAddress: string;
   customerName: string;
   shippingAddress: string;
   shippingCity: string;

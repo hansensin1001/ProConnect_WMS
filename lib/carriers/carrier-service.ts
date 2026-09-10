@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomBytes } from "crypto";
-import { createThermalLabelPdf } from "./label";
+import { createProfessionalThermalLabelPdf } from "./professional-label";
 import { carrierDisplayName, type CarrierCredentials, type CarrierSettings, type ShipmentRequest, type ShipmentResult } from "./types";
 
 export class CarrierServiceError extends Error {}
@@ -16,7 +16,7 @@ function sandboxShipment(settings: CarrierSettings, request: ShipmentRequest) {
   return {
     trackingNumber,
     serviceCode: request.serviceCode?.trim() || "STANDARD",
-    labelBase64: createThermalLabelPdf(request, carrierDisplayName(settings.carrier_code), trackingNumber),
+    labelBase64: createProfessionalThermalLabelPdf(request, carrierDisplayName(settings.carrier_code), trackingNumber),
     labelContentType: "application/pdf" as const,
     carrierStatus: "LABEL_CREATED" as const,
   };

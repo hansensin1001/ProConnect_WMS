@@ -107,10 +107,14 @@ export type Database = {
           purchase_order_item_id: string | null;
           sales_order_id: string | null;
           sales_order_item_id: string | null;
+          rma_id: string | null;
+          rtv_id: string | null;
           serial_number: string;
-          status: "IN_STOCK" | "SHIPPED" | "VOIDED";
+          status: "IN_STOCK" | "SHIPPED" | "VOIDED" | "QUARANTINED" | "RTV_PENDING";
           received_at: string;
           shipped_at: string | null;
+          returned_at: string | null;
+          vendor_returned_at: string | null;
           created_at: string;
           created_by: string | null;
           updated_at: string;
