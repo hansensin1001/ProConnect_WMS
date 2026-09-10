@@ -90,6 +90,7 @@ export type Database = {
           lot_number: string | null;
           quantity_on_hand: number;
           quantity_reserved: number;
+          quantity_quarantined: number;
           expiry_date: string | null;
           updated_at: string;
         };

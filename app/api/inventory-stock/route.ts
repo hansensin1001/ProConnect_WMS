@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
       reserved: Number(location.quantity_reserved),
       available: Number(location.quantity_available),
       inbound: Number(location.quantity_inbound),
+      quarantined: Number(location.quantity_quarantined),
       serialNumbers: serialsByLocation.get(location.location_id) ?? [],
     })),
     total: distribution?.length ?? 0,

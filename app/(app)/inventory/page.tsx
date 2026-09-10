@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentOrgContext } from "@/lib/org";
 import { PageHeader } from "@/components/PageHeader";
 import { ProductManager } from "@/components/ProductManager";
-import { InventoryTable } from "@/components/InventoryTable";
+import { InventoryTableV2 } from "@/components/InventoryTableV2";
 import { InventorySearch } from "@/components/InventorySearch";
 
 const PAGE_SIZE = 50;
@@ -40,11 +40,12 @@ export default async function InventoryPage({ searchParams }: { searchParams?: {
     ? await (supabase.rpc as any)("get_inventory_page_totals", { p_product_ids: productIds })
     : { data: [], error: null };
   if (totalsError) throw totalsError;
-  const totalsByProduct = new Map<string, { onHand: number; reserved: number; locations: number }>();
+  const totalsByProduct = new Map<string, { onHand: number; reserved: number; quarantined: number; locations: number }>();
   (totals ?? []).forEach((total: any) => {
     totalsByProduct.set(total.product_id, {
       onHand: Number(total.quantity_on_hand),
       reserved: Number(total.quantity_reserved),
+      quarantined: Number(total.quantity_quarantined),
       locations: Number(total.location_count),
     });
   });
@@ -55,7 +56,7 @@ export default async function InventoryPage({ searchParams }: { searchParams?: {
 
       <div className="p-8">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><InventorySearch initialQuery={query} /><ProductManager orgId={ctx.org.id} canManage={ctx.role === "owner" || ctx.role === "manager"} /></div>
-        <InventoryTable orgId={ctx.org.id} canManage={ctx.role === "owner" || ctx.role === "manager"} rows={products.map((product) => ({ ...product, ...(totalsByProduct.get(product.id) ?? { onHand: 0, reserved: 0, locations: 0 }) }))} page={page} total={count ?? 0} />
+        <InventoryTableV2 orgId={ctx.org.id} canManage={ctx.role === "owner" || ctx.role === "manager"} rows={products.map((product) => ({ ...product, ...(totalsByProduct.get(product.id) ?? { onHand: 0, reserved: 0, quarantined: 0, locations: 0 }) }))} page={page} total={count ?? 0} />
       </div>
     </div>
   );
