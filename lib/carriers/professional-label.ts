@@ -36,19 +36,32 @@ function qrDrawing(value: string, x: number, y: number, size: number) {
   // third-party QR service before the label is printed.
   const matrix = QRCode.create(value, { errorCorrectionLevel: "M" }).modules;
   const modules = matrix.size;
-  const unit = size / modules;
-  const operations = ["0 g"];
+  // PDF's rectangle operator is `x y width height re`.  Keep the QR in its
+  // own graphics state: this prevents its black modules from inheriting into
+  // the remainder of the label and leaves a small white quiet zone for
+  // reliable handheld-scanner reads.
+  const quietZone = 2;
+  const originX = x + quietZone;
+  const originY = y + quietZone;
+  const moduleSize = (size - quietZone * 2) / modules;
+  const operations = [
+    "q",
+    "1 g",
+    `${x.toFixed(3)} ${y.toFixed(3)} ${size.toFixed(3)} ${size.toFixed(3)} re f`,
+    "0 g",
+  ];
   for (let row = 0; row < modules; row += 1) {
     for (let column = 0; column < modules; column += 1) {
       if (matrix.data[row * modules + column]) {
         operations.push(
-          unit.toFixed(3) + " 0 0 " + unit.toFixed(3) + " "
-          + (x + column * unit).toFixed(3) + " "
-          + (y + (modules - row - 1) * unit).toFixed(3) + " re f",
+          (originX + column * moduleSize).toFixed(3) + " "
+          + (originY + (modules - row - 1) * moduleSize).toFixed(3) + " "
+          + moduleSize.toFixed(3) + " " + moduleSize.toFixed(3) + " re f",
         );
       }
     }
   }
+  operations.push("Q");
   return operations.join("\n");
 }
 

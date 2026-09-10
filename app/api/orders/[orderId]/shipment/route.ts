@@ -85,8 +85,12 @@ export async function POST(request: NextRequest, { params }: { params: { orderId
       const requestData: ShipmentRequest = {
         orderId: order.id,
         orderNumber: order.order_number,
-        senderName: warehouse?.name ? `${organization?.name ?? "ProConnect WMS"} / ${warehouse.name}` : organization?.name ?? "ProConnect WMS",
-        senderAddress: warehouse?.address?.trim() || warehouse?.code || organization?.code || "",
+        // The organization is the shipper; the warehouse remains explicit in
+        // the From address. This avoids an overlong header on 4x6 labels.
+        senderName: organization?.name ?? "ProConnect WMS",
+        senderAddress: [warehouse?.name, warehouse?.address?.trim() || warehouse?.code || organization?.code]
+          .filter(Boolean)
+          .join(", "),
         customerName: order.customer_name.trim(),
         shippingAddress: order.shipping_address.trim(),
         shippingCity: order.shipping_city?.trim() ?? "",
