@@ -1,7 +1,7 @@
 import { PageHeader } from "@/components/PageHeader";
 import { getCurrentOrgContext } from "@/lib/org";
 import { createClient } from "@/lib/supabase/server";
-import { ReportConsole } from "@/components/ReportConsole";
+import { TraceabilityReportConsole } from "@/components/TraceabilityReportConsole";
 
 const PAGE_SIZE = 50;
 export default async function ReportsPage({ searchParams }: { searchParams?: { page?: string } }) {
@@ -26,11 +26,23 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { p
     const outbound = serial.shipped_at ? [{ id: `${serial.id}-out`, direction: "SERIAL_OUT", occurredAt: serial.shipped_at, serialNumber: serial.serial_number, products: serial.products, locations: serial.locations, purchase_orders: serial.purchase_orders, sales_orders: serial.sales_orders }] : [];
     return [...inbound, ...outbound];
   }).sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
+  const { data: warehouseData, error: warehouseError } = await supabase.from("warehouses").select("id, code, name").eq("org_id", ctx.org.id).order("code");
+  if (warehouseError) throw warehouseError;
+  const warehouseIds = (warehouseData ?? []).map((warehouse: any) => warehouse.id);
+  const { data: zoneData, error: zoneError } = warehouseIds.length
+    ? await supabase.from("warehouse_zones").select("id, warehouse_id, zone_code").in("warehouse_id", warehouseIds).order("zone_code")
+    : { data: [], error: null };
+  if (zoneError) throw zoneError;
+  const zoneIds = (zoneData ?? []).map((zone: any) => zone.id);
+  const { data: locationData, error: locationError } = zoneIds.length
+    ? await supabase.from("locations").select("id, zone_id, location_code, display_code").in("zone_id", zoneIds).eq("is_active", true).order("location_code").limit(500)
+    : { data: [], error: null };
+  if (locationError) throw locationError;
 
   return <div>
     <PageHeader title="Reports" subtitle="Live warehouse operations summary" />
     <div className="p-8 space-y-6">
-      <ReportConsole orgName={ctx.org.name} movements={movementRows} serialEvents={serialEvents} page={page} total={movementCount ?? 0} />
+      <TraceabilityReportConsole orgId={ctx.org.id} orgName={ctx.org.name} warehouses={(warehouseData ?? []) as any[]} zones={(zoneData ?? []) as any[]} locations={(locationData ?? []) as any[]} serialEvents={serialEvents} />
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
         {[['Units on hand', totalOnHand], ['Units reserved', totalReserved], ['Open orders', openOrders ?? 0], ['Units picked on this page', pickedUnits]].map(([label, value]) => (
           <div key={String(label)} className="border border-line border-l-4 border-l-rack bg-panel px-5 py-4">
