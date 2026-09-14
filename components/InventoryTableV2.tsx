@@ -1,6 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { WorkflowNotice } from "@/components/ui/WorkflowNotice";
+import { binLabel, warehouseError } from "@/lib/warehouse-ui";
 import { Package } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Drawer } from "@/components/ui/Drawer";
@@ -65,29 +67,37 @@ export function InventoryTableV2({
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationQuery, setLocationQuery] = useState("");
   const [locationsLoading, setLocationsLoading] = useState(false);
+  const detailVersion = useRef(0);
+  const locationVersion = useRef(0);
+  const mutationLock = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [messageKind, setMessageKind] = useState<"error" | "success">("error");
 
   useEffect(() => setItems(rows), [rows]);
 
   async function loadStockDetails(product: InventoryRow) {
+    const version = ++detailVersion.current;
     setStockLoading(true);
     try {
       const response = await fetch(
         `/api/inventory-stock?orgId=${encodeURIComponent(orgId)}&productId=${encodeURIComponent(product.id)}`,
       );
       const payload = await response.json();
+      if (version !== detailVersion.current) return;
       if (!response.ok) throw new Error(payload.error ?? "Unable to load stock details.");
       setStockByLocation(payload.stock ?? []);
       setStockTotal(payload.total ?? 0);
       setAvailableSerials(payload.serials ?? []);
       setSerialTotal(payload.serialTotal ?? 0);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to load stock details.");
+      if (version === detailVersion.current) { setMessageKind("error"); setMessage(warehouseError(error, "Unable to load stock details.")); }
     } finally {
-      setStockLoading(false);
+      if (version === detailVersion.current) setStockLoading(false);
     }
   }
 
   async function loadLocations(query = "") {
+    const version = ++locationVersion.current;
     setLocationsLoading(true);
     try {
       const response = await fetch(
@@ -95,11 +105,11 @@ export function InventoryTableV2({
       );
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Unable to load bin locations.");
-      setLocations(payload.locations ?? []);
+      if (version === locationVersion.current) setLocations(payload.locations ?? []);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to load bin locations.");
     } finally {
-      setLocationsLoading(false);
+      if (version === locationVersion.current) setLocationsLoading(false);
     }
   }
 
@@ -107,6 +117,7 @@ export function InventoryTableV2({
     setSelected(row);
     setMode(next);
     setMessage("");
+    setMessageKind("error");
     if (next === "adjust") {
       setLocationQuery("");
       void loadLocations();
@@ -120,13 +131,16 @@ export function InventoryTableV2({
   }
 
   function close() {
+    if (busy) return;
+    detailVersion.current++; locationVersion.current++;
     setMode(null);
     setSelected(null);
   }
 
   async function saveProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selected) return;
+    if (!selected || mutationLock.current) return;
+    mutationLock.current = true; setBusy(true); setMessageKind("error");
     try {
       const form = new FormData(event.currentTarget);
       const price = Number(form.get("price") ?? 0);
@@ -139,6 +153,8 @@ export function InventoryTableV2({
         unit_of_measure: String(form.get("uom") ?? "PCS").trim() || "PCS",
         is_serialized: form.get("isSerialized") === "on",
       };
+      if (!patch.name || !patch.barcode) throw new Error("Product name and barcode are required.");
+      if (patch.is_serialized !== selected.is_serialized && (selected.onHand || selected.reserved || selected.quarantined)) throw new Error("Clear stock and reservations before changing serial tracking. Existing stock cannot be converted by changing a flag.");
       const { error } = await (supabase.from("products") as any)
         .update(patch)
         .eq("id", selected.id)
@@ -146,17 +162,20 @@ export function InventoryTableV2({
       if (error) throw error;
       setItems((current) => current.map((item) => item.id === selected.id ? { ...item, ...patch } : item));
       setSelected((current) => current ? { ...current, ...patch } : current);
-      setMessage("SKU details saved.");
+      setMessageKind("success"); setMessage("SKU details saved.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save the SKU.");
-    }
+      setMessage(warehouseError(error, "Unable to save the SKU."));
+    } finally { mutationLock.current = false; setBusy(false); }
   }
 
   async function adjustStock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selected) return;
+    if (!selected || mutationLock.current) return;
+    mutationLock.current = true; setBusy(true); setMessageKind("error");
     try {
       const form = new FormData(event.currentTarget);
+      if (selected.is_serialized) throw new Error("Serialized stock must be received or returned with its serial numbers. Quantity-only adjustments would break serial tracking.");
+      if (!locations.some((bin) => bin.id === form.get("locationId"))) throw new Error("Select a valid active storage bin.");
       const quantity = Number(form.get("quantity"));
       if (!Number.isInteger(quantity) || quantity === 0) {
         throw new Error("Enter a whole-number adjustment other than zero.");
@@ -173,10 +192,11 @@ export function InventoryTableV2({
         item.id === selected.id ? { ...item, onHand: item.onHand + quantity } : item
       )));
       setSelected((current) => current ? { ...current, onHand: current.onHand + quantity } : current);
-      setMessage("Stock adjustment recorded in the movement ledger.");
+      setMessageKind("success"); setMessage("Stock adjustment recorded in the movement ledger.");
+      (event.target as HTMLFormElement).reset();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to adjust stock.");
-    }
+      setMessage(warehouseError(error, "Unable to adjust stock."));
+    } finally { mutationLock.current = false; setBusy(false); }
   }
 
   async function removeProduct(row: InventoryRow) {
@@ -198,59 +218,23 @@ export function InventoryTableV2({
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-graphite">Location distribution</p>
         <span className="rounded-full bg-rack/10 px-2 py-1 text-xs font-semibold text-rack">
-          {stockTotal || selected.locations} {(stockTotal || selected.locations) === 1 ? "location" : "locations"}
+          {stockLoading ? "Loading…" : `${stockTotal} ${stockTotal === 1 ? "location" : "locations"}`}
         </span>
       </div>
       <p className="mt-1 text-xs text-graphite">
         Quarantine stock is physically held in the bin shown, but is excluded from available-to-sell stock.
       </p>
-      <div className="mt-2 overflow-x-auto rounded-md border border-line">
-        <table className="w-full min-w-[920px] text-sm">
-          <thead className="bg-paper text-left text-xs text-graphite">
-            <tr>
-              <th className="px-3 py-3">Warehouse / zone / bin</th>
-              <th className="px-3 py-3 text-right">On hand</th>
-              <th className="px-3 py-3 text-right">Reserved</th>
-              <th className="px-3 py-3 text-right">Available</th>
-              <th className="px-3 py-3 text-right">Inbound</th>
-              <th className="px-3 py-3 text-right">Quarantine</th>
-              <th className="px-3 py-3">Serial numbers</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stockLoading ? (
-              <tr><td colSpan={7} className="px-3 py-4 text-graphite">Loading location distribution…</td></tr>
-            ) : stockByLocation.length ? stockByLocation.map((stock) => (
-              <tr key={stock.locationId} className="border-t border-line">
-                <td className="px-3 py-3">
-                  <span className="font-medium">{stock.warehouseName}</span>
-                  <span className="mx-1 text-graphite">/</span>
-                  <span className="code-label">{stock.zoneCode}</span>
-                  <span className="mx-1 text-graphite">/</span>
-                  <span className="code-label">{stock.locationCode}</span>
-                </td>
-                <td className="px-3 py-3 text-right">{stock.onHand}</td>
-                <td className={`px-3 py-3 text-right font-semibold ${stock.reserved ? "text-amber-dark" : "text-graphite"}`}>{stock.reserved}</td>
-                <td className="px-3 py-3 text-right font-semibold text-go">{stock.available}</td>
-                <td className={`px-3 py-3 text-right font-semibold ${stock.inbound ? "text-rack" : "text-graphite"}`}>{stock.inbound || "—"}</td>
-                <td className={`px-3 py-3 text-right font-semibold ${stock.quarantined ? "text-alert" : "text-graphite"}`}>{stock.quarantined || "—"}</td>
-                <td className="px-3 py-3">
-                  {selected.is_serialized ? stock.serialNumbers.length ? (
-                    <div className="flex flex-wrap gap-1">
-                      {stock.serialNumbers.map((serial) => (
-                        <span key={serial} className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] code-label text-violet-700">{serial}</span>
-                      ))}
-                    </div>
-                  ) : <span className="text-xs text-graphite">No active serials</span> : (
-                    <span className="text-xs text-graphite">Not serialized</span>
-                  )}
-                </td>
-              </tr>
-            )) : (
-              <tr><td colSpan={7} className="px-3 py-4 text-graphite">No available, reserved, inbound, or quarantined stock is held in a location.</td></tr>
-            )}
-          </tbody>
-        </table>
+      <div className="mt-3 space-y-3">
+        {stockLoading ? <p role="status" className="text-sm text-graphite">Loading location balances…</p> : stockByLocation.length ? stockByLocation.map((stock) => <article key={stock.locationId} className="rounded-lg border border-line p-4">
+          <p className="break-words font-semibold">{stock.warehouseName && !/^unknown/i.test(stock.warehouseName) ? stock.warehouseName : "[Unassigned warehouse]"}</p>
+          <p className="mt-1 break-words text-sm text-graphite">{stock.zoneCode && !/^unknown/i.test(stock.zoneCode) ? stock.zoneCode : "[Unassigned zone]"} · <span className="code-label font-medium text-ink">{stock.locationCode && !/^unknown/i.test(stock.locationCode) ? stock.locationCode : "[Unassigned bin]"}</span></p>
+          <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">{[
+            ["Available", stock.available, "text-go"], ["Reserved", stock.reserved, "text-amber-dark"],
+            ["Inbound", stock.inbound, "text-rack"], ["Quarantine", stock.quarantined, "text-alert"], ["On hand", stock.onHand, "text-ink"],
+          ].map(([label, count, color]) => <div key={String(label)} className="rounded bg-paper p-2"><dt className="text-xs text-graphite">{label}</dt><dd className={`mt-1 text-lg font-semibold ${color}`}>{count}</dd></div>)}</dl>
+          {selected.is_serialized ? <details className="mt-3 text-sm"><summary className="min-h-11 cursor-pointer py-3 font-medium">In-stock serial numbers ({stock.serialNumbers.length})</summary><div className="max-h-48 overflow-y-auto break-all code-label">{stock.serialNumbers.join(" · ") || "No in-stock serials at this location."}</div></details> : <p className="mt-3 text-xs text-graphite">Not serialized</p>}
+        </article>) : <p className="rounded-lg border border-dashed border-line p-4 text-sm text-graphite">No stock at any location.</p>}
+        {stockTotal > stockByLocation.length && <p className="text-xs text-graphite">Showing {stockByLocation.length} of {stockTotal} locations.</p>}
       </div>
     </section>
   ) : null;
@@ -259,7 +243,7 @@ export function InventoryTableV2({
     <>
       <div className="mt-6 overflow-hidden rounded-lg border border-line bg-panel">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1040px] text-sm">
+          <table className="mobile-cards w-full min-w-[1040px] text-sm">
             <thead className="sticky top-0 z-10 bg-paper text-left text-[11px] uppercase tracking-wide text-graphite">
               <tr>
                 <th className="px-5 py-3">Product</th>
@@ -278,7 +262,7 @@ export function InventoryTableV2({
                 const low = available < 5;
                 return (
                   <tr key={row.id} className="border-t border-line transition hover:bg-paper/70">
-                    <td className="px-5 py-3">
+                    <td data-label="Product" className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <span className="flex h-9 w-9 items-center justify-center rounded-md bg-rack/10 text-rack"><Package size={18} /></span>
                         <span>
@@ -290,16 +274,16 @@ export function InventoryTableV2({
                         </span>
                       </div>
                     </td>
-                    <td className="px-5 py-3">
+                    <td data-label="SKU / barcode" className="px-5 py-3">
                       <div className="code-label text-xs">{row.sku}</div>
                       <div className="code-label mt-1 text-xs text-graphite">{row.barcode}</div>
                     </td>
-                    <td className="px-5 py-3 text-right font-medium">{row.onHand} {row.unit_of_measure}</td>
-                    <td className="px-5 py-3 text-right text-graphite">{row.reserved}</td>
-                    <td className={`px-5 py-3 text-right font-semibold ${low ? "text-alert" : "text-go"}`}>{available}</td>
-                    <td className={`px-5 py-3 text-right font-semibold ${row.quarantined ? "text-alert" : "text-graphite"}`}>{row.quarantined || "—"}</td>
-                    <td className="px-5 py-3">{low ? <StatusBadge status="LOW" /> : <StatusBadge status="ACTIVE" />}</td>
-                    <td className="px-5 py-3">
+                    <td data-label="On hand" className="px-5 py-3 text-right font-medium">{row.onHand} {row.unit_of_measure}</td>
+                    <td data-label="Reserved" className="px-5 py-3 text-right text-graphite">{row.reserved}</td>
+                    <td data-label="Available" className={`px-5 py-3 text-right font-semibold ${low ? "text-alert" : "text-go"}`}>{available}</td>
+                    <td data-label="Quarantine" className={`px-5 py-3 text-right font-semibold ${row.quarantined ? "text-alert" : "text-graphite"}`}>{row.quarantined || "—"}</td>
+                    <td data-label="Status" className="px-5 py-3">{low ? <StatusBadge status="LOW" /> : <StatusBadge status="ACTIVE" />}</td>
+                    <td data-label="Actions" className="px-5 py-3">
                       <RowActions
                         onView={() => open("view", row)}
                         onEdit={canManage ? () => open("edit", row) : undefined}
@@ -316,7 +300,7 @@ export function InventoryTableV2({
         <PageNavigation page={page} pageSize={50} total={total} />
       </div>
 
-      {message && <p role="alert" className="mt-3 text-sm text-alert">{message}</p>}
+      {mode === null && <WorkflowNotice notice={message ? { kind: messageKind, text: message } : null} />}
 
       <Drawer
         open={mode !== null}
@@ -324,6 +308,7 @@ export function InventoryTableV2({
         title={mode === "view" ? "SKU details" : mode === "edit" ? "Edit SKU" : "Adjust stock"}
         description={selected ? `${selected.sku} · ${selected.name}` : undefined}
       >
+        <WorkflowNotice notice={message ? { kind: messageKind, text: message } : null} />
         {selected && mode === "view" && (
           <div className="space-y-6">
             <section>
@@ -379,29 +364,30 @@ export function InventoryTableV2({
             </label>
             <div className="flex justify-end gap-2 border-t border-line pt-5">
               <button type="button" onClick={close} className="btn-secondary">Close</button>
-              <button className="btn-primary">Save changes</button>
+              <button disabled={busy} className="btn-primary">{busy ? "Saving…" : "Save changes"}</button>
             </div>
           </form>
         )}
 
         {selected && mode === "adjust" && (
           <form onSubmit={adjustStock} className="space-y-4">
+            {selected.is_serialized && <WorkflowNotice notice={{ kind: "error", text: "Use serial-aware receiving or returns to change serialized stock. Quantity-only adjustments are blocked." }} />}
             <p className="rounded-md border border-amber/30 bg-amber/10 p-3 text-sm text-graphite">Adjustments are audited. Use a positive number to add stock and a negative number to remove it.</p>
             <div className="flex gap-2">
               <label className="block flex-1 text-sm">Find bin<input value={locationQuery} onChange={(event) => setLocationQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void loadLocations(locationQuery); } }} placeholder="Search bin code" className="input-field mt-1" /></label>
               <button type="button" onClick={() => void loadLocations(locationQuery)} disabled={locationsLoading} className="btn-secondary mt-6">{locationsLoading ? "Loading…" : "Search"}</button>
             </div>
             <label className="block text-sm">Bin location
-              <select name="locationId" required className="input-field mt-1" disabled={locationsLoading}>
+              <select key={locations.map((bin) => bin.id).join(",")} name="locationId" defaultValue={locations[0]?.id ?? ""} required className="input-field mt-1" disabled={locationsLoading}>
                 <option value="">{locationsLoading ? "Loading bins…" : "Select bin…"}</option>
-                {locations.map((location) => <option key={location.id} value={location.id}>{location.display_code ?? "LOC?"} · {location.location_code}</option>)}
+                {locations.map((location) => <option key={location.id} value={location.id}>{binLabel(location)}</option>)}
               </select>
             </label>
             <label className="block text-sm">Quantity change<input name="quantity" type="number" step="1" required className="input-field mt-1" /></label>
             <label className="block text-sm">Reason<textarea name="reason" required className="input-field mt-1 min-h-20" /></label>
             <div className="flex justify-end gap-2 border-t border-line pt-5">
               <button type="button" onClick={close} className="btn-secondary">Cancel</button>
-              <button className="btn-primary">Record adjustment</button>
+              <button disabled={busy || selected.is_serialized || !locations.length} className="btn-primary">{busy ? "Saving…" : "Record adjustment"}</button>
             </div>
           </form>
         )}

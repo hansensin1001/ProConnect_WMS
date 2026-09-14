@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   if (warehouseError) return NextResponse.json({ error: "Unable to load locations." }, { status: 500 });
   const warehouseIds = (warehouses ?? []).map((warehouse: { id: string }) => warehouse.id);
   if (!warehouseIds.length) return NextResponse.json({ locations: [] });
-  const { data: zones, error: zoneError } = await supabase.from("warehouse_zones").select("id").in("warehouse_id", warehouseIds);
+  const { data: zones, error: zoneError } = await supabase.from("warehouse_zones").select("id").in("warehouse_id", warehouseIds).eq("zone_type", "STORAGE");
   if (zoneError) return NextResponse.json({ error: "Unable to load locations." }, { status: 500 });
   const zoneIds = (zones ?? []).map((zone: { id: string }) => zone.id);
   if (!zoneIds.length) return NextResponse.json({ locations: [] });

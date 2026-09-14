@@ -19,6 +19,7 @@ function validReturnSerials(line: any) {
   return line.serialNumbers == null || (
     Array.isArray(line.serialNumbers)
     && line.serialNumbers.length <= line.quantity
+    && new Set(line.serialNumbers.map((serial:unknown) => typeof serial === "string" ? serial.trim().toUpperCase() : "")).size === line.serialNumbers.length
     && line.serialNumbers.every((serial: unknown) => isSafeText(serial, 160, true))
   );
 }
@@ -27,7 +28,7 @@ function fail(error: unknown) {
   // These are operational messages shown only after the caller passed the
   // manager authorization check. They make incomplete SQL deployments and
   // invalid exception actions actionable without exposing credentials.
-  const safe = /^(Unauthorized|Manager or owner access is required|Invalid|Purchase order|Sales order|RMA|RTV|Cycle count|A reason|Only |receipt or rejection|rejected|select a bin|insufficient|received quantity|serial|function |relation |column |permission denied|new row|duplicate key|cycle count has)/i.test(message);
+  const safe = /^(Unauthorized|Manager or owner access is required|Invalid|Purchase order|Sales order|RMA|RTV|Cycle count|A reason|Only |Stock |Source |Picking |Shipment |Receipt |Select |receipt or rejection|rejected|select a bin|insufficient|received quantity|serial|function |relation |column |permission denied|new row|duplicate key|cycle count has)/i.test(message);
   return NextResponse.json({ error: safe ? message : "Unable to process the exception workflow." }, { status: message.includes("access") ? 403 : 400 });
 }
 
@@ -35,6 +36,11 @@ export async function GET(request: NextRequest) {
   try {
     const orgId = new URL(request.url).searchParams.get("orgId"); if (!isUuid(orgId)) throw new Error("Invalid organization.");
     const supabase = await requireManager(orgId);
+    if (new URL(request.url).searchParams.get("view") === "cycleCounts") {
+      const result = await (supabase.from("cycle_counts") as any).select("id,count_number,status,counted_at,cycle_count_items(id,system_quantity,physical_quantity,reason_code,products(sku,name),locations(location_code,display_code))").eq("org_id",orgId).order("created_at",{ascending:false}).limit(50);
+      if (result.error) throw result.error;
+      return NextResponse.json({cycleCounts:result.data ?? []});
+    }
     const [mispicks, rtvs, rmas, counts] = await Promise.all([
       (supabase.from("mispick_attempts") as any).select("id, scanned_value, reason_code, created_at, sales_orders(order_number), products(sku)").eq("org_id", orgId).order("created_at", { ascending: false }).limit(50),
       (supabase.from("return_to_vendor") as any).select("id, rtv_number, supplier_name, status, created_at").eq("org_id", orgId).order("created_at", { ascending: false }).limit(50),
@@ -52,7 +58,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json(); if (!isUuid(body?.orgId) || typeof body?.action !== "string") throw new Error("Invalid exception request.");
     const supabase = await requireManager(body.orgId); let data: unknown; let error: unknown;
     if (body.action === "partialReceipt") {
-      if (!isUuid(body.orderId) || !Array.isArray(body.receipts) || !body.receipts.every((item: any) => isUuid(item.purchaseOrderItemId) && isPositiveInteger(item.quantity, 100_000) && ["AVAILABLE", "REJECTED", "QUARANTINE"].includes(item.disposition))) throw new Error("Invalid receipt lines.");
+      if (!isUuid(body.orderId) || !Array.isArray(body.receipts) || !body.receipts.length || body.receipts.length > 100 || !body.receipts.every((item: any) => isUuid(item.purchaseOrderItemId) && isPositiveInteger(item.quantity, 100_000) && ["AVAILABLE", "REJECTED"].includes(item.disposition) && (item.rejectedSerials == null || (Array.isArray(item.rejectedSerials) && item.rejectedSerials.length <= item.quantity && item.rejectedSerials.every((value:unknown) => isSafeText(value,160,true)) && new Set(item.rejectedSerials.map((value:string) => value.trim().toUpperCase())).size === item.rejectedSerials.length)))) throw new Error("Invalid receipt lines.");
       ({ data, error } = await (supabase.rpc as any)("receive_purchase_order_partial", { p_purchase_order_id: body.orderId, p_receipts: body.receipts.map((item: any) => ({ purchase_order_item_id: item.purchaseOrderItemId, quantity: item.quantity, disposition: item.disposition === "QUARANTINE" ? "REJECTED" : item.disposition, rejected_serials: Array.isArray(item.rejectedSerials) ? item.rejectedSerials : [] })) }));
     } else if (body.action === "createRtv") {
       if (!isSafeText(body.supplierName, 100, true) || !validLines(body.lines, true) || !body.lines.every((line: any) => isUuid(line.purchaseOrderId) && validReturnSerials(line))) throw new Error("Select the accepted purchase order for every RTV line.");
@@ -68,7 +74,7 @@ export async function POST(request: NextRequest) {
     } else if (body.action === "approveCycleCount") {
       if (!isUuid(body.cycleCountId) || typeof body.approve !== "boolean") throw new Error("Invalid cycle-count approval."); ({ data, error } = await (supabase.rpc as any)("approve_cycle_count", { p_cycle_count_id: body.cycleCountId, p_approve: body.approve }));
     } else if (body.action === "partialShip") {
-      if (!isUuid(body.orderId) || !Array.isArray(body.lines) || !body.lines.every((line: any) => isUuid(line.orderItemId) && isPositiveInteger(line.quantity, 100_000))) throw new Error("Invalid shipment lines."); ({ data, error } = await (supabase.rpc as any)("fulfill_sales_order_partial", { p_sales_order_id: body.orderId, p_lines: body.lines.map((line: any) => ({ order_item_id: line.orderItemId, quantity: line.quantity })) }));
+      if (!isUuid(body.orderId) || !Array.isArray(body.lines) || !body.lines.length || body.lines.length > 100 || !body.lines.every((line: any) => isUuid(line.orderItemId) && isPositiveInteger(line.quantity, 100_000))) throw new Error("Invalid shipment lines."); ({ data, error } = await (supabase.rpc as any)("fulfill_sales_order_partial", { p_sales_order_id: body.orderId, p_lines: body.lines.map((line: any) => ({ order_item_id: line.orderItemId, quantity: line.quantity })) }));
     } else if (body.action === "logMispick") {
       if (!isUuid(body.orderId) || !isUuid(body.orderItemId) || !isSafeText(body.scannedValue, 160, true) || !["WRONG_SKU","WRONG_SERIAL","WRONG_BIN","NOT_ALLOCATED"].includes(body.reasonCode)) throw new Error("Invalid mispick attempt."); ({ data, error } = await (supabase.rpc as any)("log_mispick_attempt", { p_org_id: body.orgId, p_sales_order_id: body.orderId, p_order_item_id: body.orderItemId, p_scanned_value: body.scannedValue, p_reason_code: body.reasonCode }));
     } else throw new Error("Invalid exception action.");

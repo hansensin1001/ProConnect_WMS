@@ -12,7 +12,7 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
   const query = (searchParams?.q ?? "").trim().slice(0, 80).replace(/[,%()]/g, "");
   const status = (searchParams?.status ?? "").trim();
   const from = (page - 1) * PAGE_SIZE;
-  let ordersQuery: any = supabase.from("purchase_orders").select("id, po_number, supplier_name, status, created_at, purchase_order_items(id, product_id, location_id, quantity_expected, quantity_received)", { count: "exact" }).eq("org_id", ctx.org.id).order("created_at", { ascending: false });
+  let ordersQuery: any = supabase.from("purchase_orders").select("id, po_number, supplier_name, status, created_at, purchase_order_items(id, product_id, location_id, quantity_expected, quantity_received, products(id,sku,name,is_serialized), locations(id,display_code,location_code))", { count: "exact" }).eq("org_id", ctx.org.id).order("created_at", { ascending: false });
   if (query) ordersQuery = ordersQuery.or(`po_number.ilike.%${query}%,supplier_name.ilike.%${query}%`);
   if (["DRAFT","PENDING","PARTIALLY_RECEIVED","RECEIVED","COMPLETED","CANCELLED","REVERTED"].includes(status)) ordersQuery = ordersQuery.eq("status", status);
   const [{ data: orders, count }, { data: products }, { data: warehouses }] = await Promise.all([
@@ -25,7 +25,7 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
   // tenant. The remaining locations are available through the paginated
   // location-options endpoint when a user searches for a bin.
   const { data: locations } = warehouseIds.length
-    ? await supabase.from("locations").select("id, display_code, location_code, warehouse_zones!inner(warehouse_id)").in("warehouse_zones.warehouse_id", warehouseIds).eq("is_active", true).order("location_code").limit(200)
+    ? await supabase.from("locations").select("id, display_code, location_code, warehouse_zones!inner(warehouse_id,zone_type)").in("warehouse_zones.warehouse_id", warehouseIds).eq("is_active", true).eq("warehouse_zones.zone_type", "STORAGE").order("location_code").limit(200)
     : { data: [] };
   return <div><PageHeader title="Purchase Orders" subtitle={`Inbound stock for ${ctx.org.name}`} /><div className="p-8"><DocumentListFilters initialQuery={query} initialStatus={status} placeholder="Search PO reference or supplier" statuses={["DRAFT","PENDING","PARTIALLY_RECEIVED","RECEIVED","COMPLETED","CANCELLED","REVERTED"]}/><PurchaseOrderManager orgId={ctx.org.id} canManage={ctx.role === "owner" || ctx.role === "manager"} initialOrders={(orders ?? []) as any[]} products={(products ?? []) as any[]} locations={(locations ?? []) as any[]} page={page} total={count ?? 0} /></div></div>;
 }

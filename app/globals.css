@@ -55,4 +55,17 @@ body {
 .btn-secondary { @apply rounded-md border border-line bg-panel px-3 py-2 text-sm font-medium text-graphite hover:bg-paper; }
 .btn-danger { @apply rounded-md bg-alert px-3 py-2 text-sm font-medium text-white hover:bg-alert/90; }
 .input-field { @apply w-full rounded-md border border-line bg-panel px-3 py-2.5 text-sm text-ink placeholder:text-graphite/60 focus:border-rack focus:outline-none focus:ring-2 focus:ring-rack/15; }
+.btn-primary, .btn-secondary, .btn-danger, .action-item, .input-field { min-height: 44px; }
+button:disabled, select:disabled { cursor: not-allowed; opacity: 0.6; }
+@media (max-width: 639px) {
+  main .p-8 { padding: 1rem; }
+  .input-field { font-size: 16px; }
+  .btn-primary, .btn-secondary, .btn-danger { white-space: normal; }
+  table.mobile-cards, .mobile-cards tbody { display: block; min-width: 0; width: 100%; }
+  .mobile-cards thead { display: none; }
+  .mobile-cards tr { display: block; padding: 0.75rem; }
+  .mobile-cards td { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.5rem 0.25rem; text-align: right; overflow-wrap: anywhere; }
+  .mobile-cards td::before { content: attr(data-label); flex-shrink: 0; font-size: 0.75rem; font-weight: 600; color: #4A5262; }
+  .mobile-cards td > * { min-width: 0; }
+}
 @keyframes slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }

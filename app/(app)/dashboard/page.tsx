@@ -1,124 +1,63 @@
-import { createClient } from "@/lib/supabase/server";
-import { getCurrentOrgContext } from "@/lib/org";
+import { DashboardOverview } from "@/components/DashboardOverview";
 import { PageHeader } from "@/components/PageHeader";
+import { getCurrentOrgContext } from "@/lib/org";
+import { createClient } from "@/lib/supabase/server";
 
-async function getCounts(orgId: string) {
+async function getDashboardData(orgId: string) {
   const supabase = createClient();
+  const [
+    { count: skuCount, error: skuError },
+    { count: serializedSkuCount, error: serializedError },
+    { count: openSalesOrders, error: openSalesError },
+    { count: allocatedOrders, error: allocatedError },
+    { count: openPurchaseOrders, error: openPurchaseError },
+    { count: lowStockBalances, error: lowStockError },
+    { count: quarantinedBalances, error: quarantineError },
+    { data: salesOrders, error: salesFeedError },
+    { data: purchaseOrders, error: purchaseFeedError },
+  ] = await Promise.all([
+    supabase.from("products").select("id", { count: "exact", head: true }).eq("org_id", orgId),
+    supabase.from("products").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("is_serialized", true),
+    supabase.from("sales_orders").select("id", { count: "exact", head: true }).eq("org_id", orgId).in("status", ["NEW", "ALLOCATED", "PICKING", "PARTIALLY_SHIPPED"]),
+    supabase.from("sales_orders").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "ALLOCATED"),
+    supabase.from("purchase_orders").select("id", { count: "exact", head: true }).eq("org_id", orgId).in("status", ["PENDING", "PARTIALLY_RECEIVED"]),
+    (supabase.from("inventory_balances") as any).select("id, products!inner(org_id)", { count: "exact", head: true }).eq("products.org_id", orgId).lt("quantity_on_hand", 5),
+    (supabase.from("inventory_balances") as any).select("id, products!inner(org_id)", { count: "exact", head: true }).eq("products.org_id", orgId).gt("quantity_quarantined", 0),
+    supabase.from("sales_orders").select("id, order_number, customer_name, status, created_at").eq("org_id", orgId).order("created_at", { ascending: false }).limit(6),
+    supabase.from("purchase_orders").select("id, po_number, supplier_name, status, created_at").eq("org_id", orgId).order("created_at", { ascending: false }).limit(6),
+  ]);
 
-  const [{ count: productCount, error: productError }, { count: openOrders, error: orderError }, { count: lowStockish, error: stockError }, { data: recentScans, error: scanError }] =
-    await Promise.all([
-      supabase.from("products").select("*", { count: "exact", head: true }).eq("org_id", orgId),
-      supabase
-        .from("sales_orders")
-        .select("*", { count: "exact", head: true })
-        .eq("org_id", orgId)
-        .in("status", ["NEW", "ALLOCATED", "PICKING"]),
-      supabase
-        .from("inventory_balances")
-        .select("*, products!inner(org_id)", { count: "exact", head: true })
-        .eq("products.org_id", orgId)
-        .lt("quantity_on_hand", 5),
-      supabase
-        .from("scan_events")
-        .select("event_type, quantity, created_at")
-        .eq("org_id", orgId)
-        .order("created_at", { ascending: false })
-        .limit(6),
-    ]);
+  const activity = [
+    ...(salesOrders ?? []).map((order: any) => ({ id: order.id, kind: "SALES" as const, reference: order.order_number, counterparty: order.customer_name, status: order.status, createdAt: order.created_at, href: "/orders" })),
+    ...(purchaseOrders ?? []).map((order: any) => ({ id: order.id, kind: "PURCHASE" as const, reference: order.po_number, counterparty: order.supplier_name, status: order.status, createdAt: order.created_at, href: "/purchase-orders" })),
+  ].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()).slice(0, 8);
 
   return {
-    productCount: productCount ?? 0,
-    openOrders: openOrders ?? 0,
-    lowStockish: lowStockish ?? 0,
-    error: productError ?? orderError ?? stockError ?? scanError,
-    recentScans: (recentScans ?? []) as {
-      event_type: string;
-      quantity: number;
-      created_at: string;
-    }[],
+    metrics: {
+      skuCount: skuCount ?? 0,
+      serializedSkuCount: serializedSkuCount ?? 0,
+      openSalesOrders: openSalesOrders ?? 0,
+      allocatedOrders: allocatedOrders ?? 0,
+      openPurchaseOrders: openPurchaseOrders ?? 0,
+      lowStockBalances: lowStockBalances ?? 0,
+      quarantinedBalances: quarantinedBalances ?? 0,
+    },
+    activity,
+    error: [skuError, serializedError, openSalesError, allocatedError, openPurchaseError, lowStockError, quarantineError, salesFeedError, purchaseFeedError].find(Boolean),
   };
-}
-
-function formatScanTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Unknown time" : date.toLocaleString();
 }
 
 export default async function DashboardPage() {
   const ctx = await getCurrentOrgContext();
   if (!ctx?.org) return null;
-
-  const { productCount, openOrders, lowStockish, recentScans, error } = await getCounts(ctx.org.id);
-
-  const cards = [
-    { label: "SKUs tracked", value: productCount, accent: "border-l-rack" },
-    { label: "Open orders", value: openOrders, accent: "border-l-amber" },
-    { label: "Low-stock lines", value: lowStockish, accent: "border-l-alert" },
-  ];
+  const { metrics, activity, error } = await getDashboardData(ctx.org.id);
 
   return (
     <div>
-      <PageHeader
-        title="Dashboard"
-        subtitle={`Operations overview — ${ctx.org.name}`}
-      />
-
-      <div className="p-8">
-        {error && (
-          <div className="mb-6 border border-alert/30 bg-alert/5 px-4 py-3 text-sm text-alert">
-            Dashboard data could not be fully loaded. Check that the Supabase schema and
-            row-level security policies have been applied, then refresh the page.
-          </div>
-        )}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          {cards.map((c) => (
-            <div
-              key={c.label}
-              className={`bg-panel border border-line border-l-4 ${c.accent} px-5 py-4`}
-            >
-              <div className="text-xs uppercase tracking-wide text-graphite mb-1">
-                {c.label}
-              </div>
-              <div className="stencil text-4xl text-ink">{c.value}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="bg-panel border border-line">
-          <div className="px-5 py-3 border-b border-line text-sm font-medium">
-            Recent scan activity
-          </div>
-          {recentScans.length === 0 ? (
-            <div className="px-5 py-8 text-sm text-graphite">
-              No scans logged yet. Put-away and pick actions from the Scan
-              screen will show up here.
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <tbody>
-                {recentScans.map((s, i) => (
-                  <tr key={i} className="border-b border-line last:border-0">
-                    <td className="px-5 py-3 code-label text-xs text-graphite w-40">
-                      {formatScanTime(s.created_at)}
-                    </td>
-                    <td className="px-5 py-3">
-                      <span
-                        className={
-                          s.event_type === "PICK"
-                            ? "text-alert font-medium"
-                            : "text-go font-medium"
-                        }
-                      >
-                        {s.event_type}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-graphite">qty {s.quantity}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+      <PageHeader title="Dashboard" subtitle={`Warehouse operations for ${ctx.org.code ?? "ORG"} · ${ctx.org.name}`} />
+      <div className="p-5 sm:p-8">
+        {error && <div className="mb-6 rounded-lg border border-alert/30 bg-alert/5 px-4 py-3 text-sm text-alert">Some dashboard indicators could not be loaded. Review the database schema and organization permissions, then refresh this page.</div>}
+        <DashboardOverview organizationName={ctx.org.name} generatedAt={new Date().toISOString()} metrics={metrics} activity={activity} />
       </div>
     </div>
   );

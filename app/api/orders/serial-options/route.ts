@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   if (!membership || !["owner", "manager"].includes((membership as { role: string }).role)) return NextResponse.json({ error: "Manager or owner access is required." }, { status: 403 });
 
   const { data: order, error } = await (supabase.from("sales_orders") as any)
-    .select("id, order_number, customer_name, shipping_address, shipping_city, shipping_postcode, status, order_items(id, product_id, quantity_requested, quantity_reserved, products(id, sku, name, is_serialized), order_item_allocations(quantity_reserved, inventory_balances(location_id, locations(display_code, location_code))))")
+    .select("id, order_number, customer_name, shipping_address, shipping_city, shipping_postcode, status, order_items(id, product_id, quantity_requested, quantity_reserved, products(id, sku, name, barcode, is_serialized), order_item_allocations(quantity_reserved, quantity_fulfilled, picking_location:locations!picking_location_id(display_code,location_code), inventory_balances(location_id, locations(display_code, location_code))))")
     .eq("id", orderId).eq("org_id", orgId).maybeSingle();
   if (error) return NextResponse.json({ error: "Unable to load shipment details." }, { status: 500 });
   if (!order) return NextResponse.json({ error: "Order not found in the active organization." }, { status: 404 });
@@ -68,39 +68,45 @@ export async function GET(request: NextRequest) {
 // A pasted scanner batch used to issue one GET (and reload the entire order)
 // per serial. Validate a bounded batch in one scoped query instead.
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => null);
-  const orgId = body?.orgId;
-  const orderId = body?.orderId;
-  const orderItemId = body?.orderItemId;
-  const rawSerialNumbers: unknown[] = Array.isArray(body?.serialNumbers) ? body.serialNumbers : [];
-  const serialNumbers: string[] = [...new Set(rawSerialNumbers.map((value) => typeof value === "string" ? value.trim().toUpperCase() : "").filter((value): value is string => Boolean(value)))];
-  if (!isUuid(orgId) || !isUuid(orderId) || !isUuid(orderItemId) || !serialNumbers.length || serialNumbers.length > 500 || !serialNumbers.every((serial: string) => isSafeText(serial, 160, true))) return NextResponse.json({ error: "Invalid serial number scan." }, { status: 400 });
-
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  const { data: membership } = await supabase.from("org_members").select("role").eq("org_id", orgId).eq("user_id", user.id).maybeSingle();
-  if (!membership || !["owner", "manager"].includes((membership as { role: string }).role)) return NextResponse.json({ error: "Manager or owner access is required." }, { status: 403 });
-
-  const { data: line, error: lineError } = await (supabase.from("order_items") as any)
-    .select("id, product_id, products!inner(is_serialized), sales_orders!inner(org_id), order_item_allocations(quantity_reserved, inventory_balances(location_id))")
-    .eq("id", orderItemId).eq("sales_order_id", orderId).eq("sales_orders.org_id", orgId).maybeSingle();
-  if (lineError) return NextResponse.json({ error: "Unable to verify serial numbers." }, { status: 500 });
-  const locationIds = [...new Set((line?.order_item_allocations ?? []).map((allocation: any) => allocation.inventory_balances?.location_id).filter(Boolean))];
-  if (!line?.products?.is_serialized || !locationIds.length) return NextResponse.json({ error: "This serialised line does not have an allocated bin." }, { status: 400 });
-
-  const { data: rows, error } = await (supabase.from("serial_numbers") as any)
-    .select("serial_number")
-    .eq("org_id", orgId).eq("product_id", line.product_id).eq("status", "IN_STOCK")
-    .in("serial_number", serialNumbers).in("location_id", locationIds);
-  if (error) return NextResponse.json({ error: "Unable to verify serial numbers." }, { status: 500 });
-  const accepted = (rows ?? []).map((row: { serial_number: string }) => row.serial_number);
-  const acceptedSet = new Set(accepted);
-  const rejected = serialNumbers.filter((serial: string) => !acceptedSet.has(serial));
-  if (rejected.length) {
-    // The client keeps the invalid scan out of the fulfillment selection; this
-    // audit record makes wrong-serial attempts visible to managers.
-    await (supabase.rpc as any)("log_mispick_attempt", { p_org_id: orgId, p_sales_order_id: orderId, p_order_item_id: orderItemId, p_scanned_value: rejected[0], p_reason_code: "WRONG_SERIAL" });
-  }
-  return NextResponse.json({ accepted, rejected });
+  try {
+    const body = await request.json().catch(() => null);
+    const { orgId, orderId, orderItemId } = body ?? {};
+    const barcode = typeof body?.barcode === "string" ? body.barcode.trim().toUpperCase() : "";
+    const raw: unknown[] = Array.isArray(body?.serialNumbers) ? body.serialNumbers : [];
+    const serials = raw.map((value) => typeof value === "string" ? value.trim().toUpperCase() : "");
+    if (!isUuid(orgId) || !isUuid(orderId) || !isUuid(orderItemId) || (barcode ? !isSafeText(barcode,160,true) || serials.length > 0 : !serials.length || serials.length > 500 || !serials.every((serial) => isSafeText(serial,160,true)) || new Set(serials).size !== serials.length))
+      return NextResponse.json({ error: "Invalid or duplicate scan. Scan each serial only once." }, { status: 400 });
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Sign in again to continue." }, { status: 401 });
+    const { data: membership, error: membershipError } = await supabase.from("org_members").select("role").eq("org_id",orgId).eq("user_id",user.id).maybeSingle();
+    if (membershipError) throw membershipError;
+    if (!membership || !["owner","manager"].includes((membership as {role:string}).role)) return NextResponse.json({ error: "Manager or owner access is required." }, { status: 403 });
+    const { data: line, error } = await (supabase.from("order_items") as any)
+      .select("id, product_id, products!inner(sku,barcode,is_serialized), sales_orders!inner(org_id,status), order_item_allocations(quantity_reserved,quantity_fulfilled,inventory_balances(location_id))")
+      .eq("id",orderItemId).eq("sales_order_id",orderId).eq("sales_orders.org_id",orgId).maybeSingle();
+    if (error) throw error;
+    const locationIds = [...new Set((line?.order_item_allocations ?? []).filter((allocation:any) => allocation.quantity_reserved > (allocation.quantity_fulfilled ?? 0)).map((allocation:any) => allocation.inventory_balances?.location_id).filter(Boolean))];
+    if (!line || !["ALLOCATED","PARTIALLY_SHIPPED"].includes(line.sales_orders.status) || !locationIds.length) return NextResponse.json({ error: "This line has no remaining stock allocation. Refresh the order before picking." }, { status: 409 });
+    let accepted: string[] = [];
+    let rejected: string[] = [];
+    if (barcode) {
+      if (line.products.is_serialized) return NextResponse.json({ error: "This SKU requires an individual serial number for each unit." }, { status: 400 });
+      if ([line.products.barcode, line.products.sku].some((value:string) => value?.trim().toUpperCase() === barcode)) accepted = [barcode];
+      else rejected = [barcode];
+    } else {
+      if (!line.products.is_serialized) return NextResponse.json({ error: "Scan this product's barcode or SKU instead of a serial." }, { status: 400 });
+      const { data: rows, error: serialError } = await (supabase.from("serial_numbers") as any).select("serial_number").eq("org_id",orgId).eq("product_id",line.product_id).eq("status","IN_STOCK").in("location_id",locationIds).in("serial_number",serials);
+      if (serialError) throw serialError;
+      const valid = new Set((rows ?? []).map((row:{serial_number:string}) => row.serial_number));
+      accepted = serials.filter((serial) => valid.has(serial));
+      rejected = serials.filter((serial) => !valid.has(serial));
+    }
+    if (rejected.length) {
+      const { error: auditError } = await (supabase.rpc as any)("log_mispick_attempt", { p_org_id:orgId, p_sales_order_id:orderId, p_order_item_id:orderItemId, p_scanned_value:rejected[0], p_reason_code:barcode ? "WRONG_SKU" : "WRONG_SERIAL" });
+      if (auditError) return NextResponse.json({ error: "Mispick blocked. The audit log could not be saved; contact your manager before continuing." }, { status: 503 });
+      return NextResponse.json({ accepted: [], rejected, error: barcode ? "Wrong SKU. Scan the barcode on the required product." : "Wrong serial or source bin. None of this batch was added; check the highlighted line." }, { status: 409 });
+    }
+    return NextResponse.json({ accepted, rejected: [] });
+  } catch { return NextResponse.json({ error: "Unable to verify the scan. Nothing was confirmed; try again when the connection is restored." }, { status: 500 }); }
 }
