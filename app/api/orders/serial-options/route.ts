@@ -7,6 +7,7 @@ import { isSafeText, isUuid } from "@/lib/validation";
 const MAX_SERIAL_OPTIONS = 100;
 
 export async function GET(request: NextRequest) {
+  try {
   const orgId = request.nextUrl.searchParams.get("orgId");
   const orderId = request.nextUrl.searchParams.get("orderId");
   const orderItemId = request.nextUrl.searchParams.get("orderItemId");
@@ -63,6 +64,9 @@ export async function GET(request: NextRequest) {
   if (pickingError) return NextResponse.json({ error: "Unable to load picking locations." }, { status: 500 });
   const pickingLocations = (pickingRows ?? []).map((location: any) => ({ id: location.id, code: location.display_code ?? location.location_code }));
   return NextResponse.json({ order, serials: serials ?? [], pickingLocations, truncated: (serials?.length ?? 0) === MAX_SERIAL_OPTIONS });
+  } catch {
+    return NextResponse.json({ error: "Unable to load shipment details. Check your connection and reopen the order." }, { status: 500 });
+  }
 }
 
 // A pasted scanner batch used to issue one GET (and reload the entire order)

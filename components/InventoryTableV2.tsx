@@ -107,7 +107,7 @@ export function InventoryTableV2({
       if (!response.ok) throw new Error(payload.error ?? "Unable to load bin locations.");
       if (version === locationVersion.current) setLocations(payload.locations ?? []);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to load bin locations.");
+      if (version === locationVersion.current) { setMessageKind("error"); setMessage(warehouseError(error, "Unable to load bin locations.")); }
     } finally {
       if (version === locationVersion.current) setLocationsLoading(false);
     }

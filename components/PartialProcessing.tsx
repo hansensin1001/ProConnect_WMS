@@ -23,18 +23,47 @@ export function PartialProcessing({ orgId, orders, inbound }: { orgId: string; o
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
+  const [barcode, setBarcode] = useState("");
+  const [verifiedLine, setVerifiedLine] = useState("");
+  const [scanBusy, setScanBusy] = useState(false);
+  const scanLock = useRef(false);
+  const barcodeInput = useRef<HTMLInputElement>(null);
+  const selectionKey = `${orgId}/${orderId}/${lineId}`;
+  const currentSelection = useRef(selectionKey);
+  currentSelection.current = selectionKey;
   useEffect(() => setLocalOrders(orders), [orders]);
   const order = localOrders.find((item) => item.id === orderId);
   const availableLines = useMemo(() => (order?.lines ?? []).filter((line) => remaining(line, inbound) > 0), [order, inbound]);
   useEffect(() => { setLineId((current) => availableLines.some((line) => line.id === current) ? current : availableLines[0]?.id ?? ""); }, [availableLines]);
   useEffect(() => { setQuantity(""); setSerials([]); }, [orderId, lineId, decision]);
+  useEffect(() => { setBarcode(""); setVerifiedLine(""); if (!inbound) barcodeInput.current?.focus(); }, [selectionKey, inbound]);
+  // Focus only after React re-enables the scanner following an async check.
+  useEffect(() => { if (!inbound && !scanBusy && !busy) { barcodeInput.current?.focus(); barcodeInput.current?.select(); } }, [inbound, scanBusy, busy]);
   const line = availableLines.find((item) => item.id === lineId);
   const balance = line ? remaining(line, inbound) : 0;
   const serialized = Boolean(line?.products?.is_serialized);
   const serialWorkflowRequired = serialized && (!inbound || decision === "AVAILABLE");
   const missingBin = inbound && decision === "AVAILABLE" && !line?.location_id;
   const count = Number(quantity);
-  const ready = Boolean(line && !missingBin && !serialWorkflowRequired && Number.isSafeInteger(count) && count > 0 && count <= balance && (!serialized || serials.length === count));
+  const quantityError = quantity.trim() && (!Number.isSafeInteger(count) || count <= 0 || count > balance)
+    ? `Enter a whole quantity between 1 and ${balance}. You cannot process more than the remaining balance.` : "";
+  const ready = Boolean(line && !missingBin && !serialWorkflowRequired && !scanBusy && (inbound || verifiedLine === selectionKey) && Number.isSafeInteger(count) && count > 0 && count <= balance && (!serialized || serials.length === count));
+  async function verifyBarcode() {
+    if (!line || !barcode.trim() || scanLock.current || busy) return;
+    const scanSelection = selectionKey;
+    scanLock.current = true; setScanBusy(true); setVerifiedLine(""); setNotice(null);
+    try {
+      const response = await fetch("/api/orders/serial-options", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orgId, orderId, orderItemId: lineId, barcode: barcode.trim() }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Unable to verify this SKU. Shipment is blocked.");
+      if (currentSelection.current === scanSelection) {
+        setVerifiedLine(scanSelection); setBarcode("");
+        setNotice({ kind: "success", text: "Product verified against this order's allocation. Enter the units physically shipping now." });
+      }
+    } catch (error) {
+      if (currentSelection.current === scanSelection) setNotice({ kind: "error", text: warehouseError(error, "Scan verification failed. No stock was shipped.") });
+    } finally { scanLock.current = false; setScanBusy(false); }
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (lock.current) return;
@@ -48,7 +77,7 @@ export function PartialProcessing({ orgId, orders, inbound }: { orgId: string; o
       if (!response.ok) throw new Error(result.error ?? "Unable to process the document.");
       // Update the local ceiling immediately; subsequent scans cannot use the old balance.
       setLocalOrders((current) => current.map((item) => item.id !== orderId ? item : { ...item, lines: item.lines.map((row) => row.id !== lineId ? row : inbound ? decision === "REJECTED" ? { ...row, rejected_qty: (row.rejected_qty ?? 0) + count } : { ...row, quantity_received: (row.quantity_received ?? 0) + count } : { ...row, quantity_picked: (row.quantity_picked ?? 0) + count }) }));
-      setQuantity(""); setSerials([]);
+      setQuantity(""); setSerials([]); setVerifiedLine("");
       setNotice({ kind: "success", text: decision === "REJECTED" && inbound ? `${count} units rejected at the dock. No inventory was created. ${balance - count} units remain unresolved on this line.` : `${count} units ${inbound ? "received" : "shipped"}. ${balance - count} units remain on this line.` });
       router.refresh();
     } catch (error) { setNotice({ kind: "error", text: warehouseError(error, "Unable to confirm processing. Check the document before retrying if your connection was interrupted.") }); }
@@ -66,7 +95,15 @@ export function PartialProcessing({ orgId, orders, inbound }: { orgId: string; o
       {serialWorkflowRequired && <WorkflowNotice notice={{ kind: "error", text: "Partial processing for serialized stock is not supported by the installed database workflow. Use the main order's serial processing panel for a full receipt/shipment. Do not process serialized stock as a standard item." }} />}
       {serialWorkflowRequired && <Link className="inline-flex min-h-11 items-center font-medium text-rack underline" href={`${inbound ? "/purchase-orders" : "/orders"}?q=${encodeURIComponent(order?.reference ?? "")}`}>Open serial processing</Link>}
       {missingBin && line && <WorkflowNotice notice={{ kind: "error", text: "This PO line has no receiving bin. Assign an active storage bin on the purchase order before accepting goods." }} />}
+      {!inbound && line && !serialized && <div className="rounded-lg border border-line p-3">
+        <label className="block text-sm font-medium">Scan product barcode / SKU
+          <input ref={barcodeInput} value={barcode} autoComplete="off" spellCheck={false} disabled={scanBusy} onChange={(event) => { setBarcode(event.target.value); setVerifiedLine(""); }} onKeyDown={(event) => { if (event.key === "Enter" || (event.key === "Tab" && barcode.trim())) { event.preventDefault(); void verifyBarcode(); } }} placeholder="Scan product, then Enter" className="input-field mt-1" />
+        </label>
+        <button type="button" disabled={scanBusy || !barcode.trim()} onClick={() => void verifyBarcode()} className="btn-secondary mt-2">{scanBusy ? "Checking scan…" : "Verify product"}</button>
+        <p className="mt-2 text-sm text-graphite">{verifiedLine === selectionKey ? "Verified for this shipment." : "Shipment stays locked until the SKU matches an active allocation. Wrong scans are logged as mispicks."}</p>
+      </div>}
       <label className="block text-sm font-medium">{inbound && decision === "REJECTED" ? "Rejected units" : inbound ? "Units received now" : "Units shipped now"}<input type="number" required step="1" min="1" max={balance || 1} inputMode="numeric" value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={!line || serialWorkflowRequired} className="input-field mt-1" placeholder="Count physical units" /></label>
+      {quantityError && <WorkflowNotice notice={{ kind: "error", text: quantityError }} />}
       {inbound && decision === "REJECTED" && serialized && <SerialScanner key={lineId} label="Scan rejected serial numbers" serials={serials} onChange={setSerials} quantity={count} disabled={busy} />}
     </fieldset>
     <button disabled={busy || !ready} className="btn-primary mt-5 w-full justify-center sm:w-auto">{busy ? "Posting…" : inbound ? decision === "REJECTED" ? "Record dock rejection" : "Confirm receipt" : "Confirm partial shipment"}</button>
