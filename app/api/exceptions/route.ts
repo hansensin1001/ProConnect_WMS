@@ -36,6 +36,13 @@ export async function GET(request: NextRequest) {
   try {
     const orgId = new URL(request.url).searchParams.get("orgId"); if (!isUuid(orgId)) throw new Error("Invalid organization.");
     const supabase = await requireManager(orgId);
+    if (new URL(request.url).searchParams.get("view") === "rtvs") {
+      const result = await (supabase.from("return_to_vendor") as any)
+        .select("id,rtv_number,supplier_name,status,created_at,return_to_vendor_items(id,purchase_order_id,product_id,location_id,quantity,reason,products(sku,name,is_serialized),locations(display_code,location_code,warehouse_zones(zone_code,warehouses(name))),rtv_serial_numbers(serial_number))")
+        .eq("org_id", orgId).order("created_at", { ascending: false }).limit(100);
+      if (result.error) throw result.error;
+      return NextResponse.json({ rtvs: result.data ?? [] });
+    }
     if (new URL(request.url).searchParams.get("view") === "cycleCounts") {
       const result = await (supabase.from("cycle_counts") as any).select("id,count_number,status,counted_at,cycle_count_items(id,system_quantity,physical_quantity,reason_code,products(sku,name),locations(location_code,display_code))").eq("org_id",orgId).order("created_at",{ascending:false}).limit(50);
       if (result.error) throw result.error;
