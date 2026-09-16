@@ -5,7 +5,10 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   // Authentication endpoints must never be intercepted by a session redirect.
   // They establish or clear the session themselves.
-  if (pathname.startsWith("/api/auth/")) return NextResponse.next();
+  // The public commercial homepage and the sign-in screen must render before
+  // Supabase is initialised. This keeps the marketing site publicly reachable
+  // and avoids a misleading server error when local auth variables are absent.
+  if (pathname === "/" || pathname === "/login" || pathname.startsWith("/api/auth/")) return NextResponse.next();
 
   let response = NextResponse.next({
     request: { headers: request.headers },

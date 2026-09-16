@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ProConnect WMS",
-  description: "Warehouse management for ProConnect Solutions clients.",
+  title: { default: "ProConnect WMS | Warehouse operations, connected", template: "%s | ProConnect WMS" },
+  description: "ProConnect WMS brings inventory, locations, receiving, fulfilment and traceability into one warehouse operations platform.",
 };
 
 export default function RootLayout({
