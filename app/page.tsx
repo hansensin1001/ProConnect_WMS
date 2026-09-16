@@ -32,10 +32,11 @@ function ProConnectExpressMark() {
   return <span className="landing-brand-mark" aria-hidden="true">
     <svg viewBox="0 0 52 52" role="presentation">
       <defs><linearGradient id="proconnect-mark" x1="9" y1="10" x2="43" y2="42" gradientUnits="userSpaceOnUse"><stop stopColor="#ff8c42" /><stop offset=".55" stopColor="#ef4f4b" /><stop offset="1" stopColor="#bd223d" /></linearGradient></defs>
-      <path d="M10 25.8c4.4-10.5 13.2-15.8 23-13.5 4.7 1.1 8.3 4.3 9.4 8.3" fill="none" stroke="url(#proconnect-mark)" strokeLinecap="round" strokeWidth="5.2" />
-      <path d="M42 26.2c-4.4 10.5-13.2 15.8-23 13.5-4.7-1.1-8.3-4.3-9.4-8.3" fill="none" stroke="url(#proconnect-mark)" strokeLinecap="round" strokeWidth="5.2" />
-      <path d="M15.1 29.6c5.1 4.1 14.4 4.1 20.8-1.2" fill="none" stroke="url(#proconnect-mark)" strokeLinecap="round" strokeWidth="4.4" />
-      <circle cx="27" cy="24.5" r="3.3" fill="#ff7149" />
+      <path d="M8.5 24.4C11.8 13.7 21.8 8.1 32.1 10c6.5 1.2 11.1 4.8 13.4 9.5" fill="none" stroke="url(#proconnect-mark)" strokeLinecap="round" strokeWidth="5.1" />
+      <path d="M44 30.1C40.2 39.2 30.7 43.8 21.1 41.8c-5.6-1.1-9.5-4.2-11.8-8.2" fill="none" stroke="url(#proconnect-mark)" strokeLinecap="round" strokeWidth="5.1" />
+      <path d="M7.5 29.2h10.3M44.5 23.2h-8.4" fill="none" stroke="#ff7843" strokeLinecap="round" strokeWidth="4.8" />
+      <path d="M17.8 26.2c3.1-6.7 10.4-9.6 16.5-6.7 4.5 2.1 6.5 7 4.5 11.4-2.1 4.7-7.8 6.2-12.6 3.6" fill="none" stroke="url(#proconnect-mark)" strokeLinecap="round" strokeWidth="4.8" />
+      <path d="M19.6 31.8c2.9 3.2 7.6 4.4 11.4 2.9" fill="none" stroke="#ff7543" strokeLinecap="round" strokeWidth="3.8" />
     </svg>
   </span>;
 }
