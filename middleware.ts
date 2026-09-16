@@ -8,7 +8,13 @@ export async function middleware(request: NextRequest) {
   // The public commercial homepage and the sign-in screen must render before
   // Supabase is initialised. This keeps the marketing site publicly reachable
   // and avoids a misleading server error when local auth variables are absent.
-  if (pathname === "/" || pathname === "/login" || pathname.startsWith("/api/auth/")) return NextResponse.next();
+  if (
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname.startsWith("/api/auth/") ||
+    pathname.startsWith("/_next/") ||
+    /\/[^/]+\.[A-Za-z0-9]+$/.test(pathname)
+  ) return NextResponse.next();
 
   let response = NextResponse.next({
     request: { headers: request.headers },

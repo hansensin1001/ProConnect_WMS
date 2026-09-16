@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -28,25 +29,11 @@ const workflow = [
   ["03", "Fulfil", "Allocate, scan, label and dispatch sales orders with a documented audit trail."],
 ];
 
-function ProConnectExpressMark() {
-  return <span className="landing-brand-mark" aria-hidden="true">
-    <svg viewBox="0 0 52 52" role="presentation">
-      <defs><linearGradient id="proconnect-mark" x1="9" y1="10" x2="43" y2="42" gradientUnits="userSpaceOnUse"><stop stopColor="#ff8c42" /><stop offset=".55" stopColor="#ef4f4b" /><stop offset="1" stopColor="#bd223d" /></linearGradient></defs>
-      <path d="M8.5 24.4C11.8 13.7 21.8 8.1 32.1 10c6.5 1.2 11.1 4.8 13.4 9.5" fill="none" stroke="url(#proconnect-mark)" strokeLinecap="round" strokeWidth="5.1" />
-      <path d="M44 30.1C40.2 39.2 30.7 43.8 21.1 41.8c-5.6-1.1-9.5-4.2-11.8-8.2" fill="none" stroke="url(#proconnect-mark)" strokeLinecap="round" strokeWidth="5.1" />
-      <path d="M7.5 29.2h10.3M44.5 23.2h-8.4" fill="none" stroke="#ff7843" strokeLinecap="round" strokeWidth="4.8" />
-      <path d="M17.8 26.2c3.1-6.7 10.4-9.6 16.5-6.7 4.5 2.1 6.5 7 4.5 11.4-2.1 4.7-7.8 6.2-12.6 3.6" fill="none" stroke="url(#proconnect-mark)" strokeLinecap="round" strokeWidth="4.8" />
-      <path d="M19.6 31.8c2.9 3.2 7.6 4.4 11.4 2.9" fill="none" stroke="#ff7543" strokeLinecap="round" strokeWidth="3.8" />
-    </svg>
-  </span>;
-}
-
 export default function Home() {
   return <main className="landing-page min-h-screen overflow-hidden bg-[#f7f8f8] text-ink">
-    <header className="landing-shell relative z-20 flex h-20 items-center justify-between gap-4">
-      <Link href="/" className="group flex items-center gap-3" aria-label="ProConnect WMS home">
-        <ProConnectExpressMark />
-        <span><strong className="block text-lg leading-none tracking-tight text-ink">ProConnect <span className="font-normal">Express</span></strong><span className="mt-1 block text-[10px] font-bold tracking-[0.2em] text-[#c53d45]">WMS PLATFORM</span></span>
+    <header className="landing-shell relative z-20 flex h-[96px] items-center justify-between gap-4">
+      <Link href="/" className="group flex items-center" aria-label="ProConnect Express WMS Platform home">
+        <Image src="/proconnect-express-wms-logo.png" width={206} height={114} priority unoptimized alt="ProConnect Express WMS Platform" className="landing-logo-image" />
       </Link>
       <nav className="hidden items-center gap-7 text-sm font-medium text-graphite lg:flex" aria-label="Primary navigation">
         <a href="#platform" className="transition hover:text-rack">Platform</a>
@@ -96,6 +83,6 @@ export default function Home() {
 
     <section id="contact" className="landing-shell py-20 lg:py-28"><div className="landing-contact grid overflow-hidden rounded-2xl lg:grid-cols-[0.84fr_1.16fr]"><div className="p-8 sm:p-12"><p className="landing-eyebrow"><span />TALK TO OUR TEAM</p><h2 className="mt-5 text-4xl font-semibold leading-tight tracking-[-0.04em] sm:text-5xl">Let’s make your warehouse easier to run.</h2><p className="mt-6 max-w-md text-lg leading-8 text-graphite">Have a question about ProConnect WMS or need help from our operations team? Contact ProConnect Express Services directly.</p><div className="mt-9 flex flex-wrap gap-3"><a href="https://wa.me/601175054245" target="_blank" rel="noreferrer" className="landing-whatsapp"><MessageCircle size={18} />Chat on WhatsApp</a><a href="mailto:petersin@proconnect-express.com" className="landing-text-cta">Email us <ArrowRight size={16} /></a></div></div><div className="bg-rack p-8 text-white sm:p-12"><div className="grid gap-7 sm:grid-cols-2"><article className="landing-contact-item"><Phone size={22} className="text-amber-light" /><p className="landing-contact-label">Phone / WhatsApp</p><a href="tel:+601175054245" className="landing-contact-link">+60 11-7505 4245</a></article><article className="landing-contact-item"><Mail size={22} className="text-amber-light" /><p className="landing-contact-label">Email</p><a href="mailto:petersin@proconnect-express.com" className="landing-contact-link break-all">petersin@proconnect-express.com</a></article><article className="landing-contact-item"><MapPinned size={22} className="text-amber-light" /><p className="landing-contact-label">Office & Waze</p><p className="leading-6 text-white/80">58-1, Persiaran Mutiara 1,<br />Bandar Tasek Mutiara,<br />14120 Simpang Ampat, Pulau Pinang</p><a href="https://waze.com/ul?q=ProConnect%20Express%20Services" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-amber-light hover:text-white">Open in Waze <ExternalLink size={14} /></a></article><article className="landing-contact-item"><Clock3 size={22} className="text-amber-light" /><p className="landing-contact-label">Operating hours</p><p className="leading-7 text-white/80">Monday – Friday<br /><strong className="font-medium text-white">10.00am – 6.00pm</strong></p><p className="mt-2 leading-7 text-white/80">Saturday<br /><strong className="font-medium text-white">10.00am – 3.00pm</strong></p></article></div></div></div></section>
 
-    <footer className="border-t border-ink/10 bg-white"><div className="landing-shell grid gap-8 py-9 text-sm text-graphite lg:grid-cols-[1fr_auto_1fr] lg:items-center"><div className="flex items-center gap-2 font-medium text-ink"><ProConnectExpressMark /><span>ProConnect <span className="font-normal">Express</span></span></div><p className="text-center text-xs leading-6">© 2026 Proconnect Express Services (JM0993273-A). All rights reserved.</p><div className="flex flex-wrap justify-start gap-x-5 gap-y-2 lg:justify-end"><a href="https://www.proconnect-express.com/home" target="_blank" rel="noreferrer" className="font-medium text-rack hover:underline">ProConnect Express Services <ExternalLink className="ml-1 inline-block" size={13} /></a><span className="text-xs">Designed &amp; hosted by <span className="font-semibold text-ink">ProNexa Technology</span></span><Link href="/login" className="font-medium text-rack hover:underline">Client login</Link></div></div></footer>
+    <footer className="border-t border-ink/10 bg-white"><div className="landing-shell grid gap-8 py-9 text-sm text-graphite lg:grid-cols-[1fr_auto_1fr] lg:items-center"><div><Image src="/proconnect-express-wms-logo.png" width={128} height={71} unoptimized alt="ProConnect Express WMS Platform" className="landing-footer-logo" /></div><p className="text-center text-xs leading-6">© 2026 Proconnect Express Services (JM0993273-A). All rights reserved.</p><div className="flex flex-wrap justify-start gap-x-5 gap-y-2 lg:justify-end"><a href="https://www.proconnect-express.com/home" target="_blank" rel="noreferrer" className="font-medium text-rack hover:underline">ProConnect Express Services <ExternalLink className="ml-1 inline-block" size={13} /></a><span className="text-xs">Designed &amp; hosted by <span className="font-semibold text-ink">ProNexa Technology</span></span><Link href="/login" className="font-medium text-rack hover:underline">Client login</Link></div></div></footer>
   </main>;
 }
