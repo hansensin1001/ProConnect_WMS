@@ -73,8 +73,17 @@ button:disabled, select:disabled { cursor: not-allowed; opacity: 0.6; }
 /* Public commercial landing page */
 .landing-shell { width: min(1180px, calc(100% - 2rem)); margin-inline: auto; }
 .landing-page { font-family: var(--font-sans); }
-.landing-logo-image { height: 80px; width: auto; object-fit: contain; }
-.landing-footer-logo { height: 56px; width: auto; object-fit: contain; }
+.landing-brand-lockup { display: inline-flex; align-items: center; gap: .65rem; min-width: 0; }
+.landing-brand-photo { display: block; height: 62px; width: 62px; flex: 0 0 auto; border-radius: 14px; background-image: url("/proconnect-express-wms-logo-20260916.png"); background-repeat: no-repeat; background-position: -8px center; background-size: 216px 119px; }
+.landing-brand-words { display: grid; line-height: 1; color: #1b2027; }
+.landing-brand-words strong { font-size: 1.08rem; font-weight: 800; letter-spacing: -.035em; }
+.landing-brand-words > span { margin-top: .08rem; font-size: 1rem; font-weight: 400; letter-spacing: -.025em; }
+.landing-brand-words small { margin-top: .38rem; font-size: .61rem; font-weight: 800; letter-spacing: .22em; color: #c83d47; }
+.landing-brand-lockup-footer { gap: .5rem; }
+.landing-brand-lockup-footer .landing-brand-photo { height: 42px; width: 42px; border-radius: 10px; background-size: 147px 81px; background-position: -5px center; }
+.landing-brand-lockup-footer .landing-brand-words strong { font-size: .9rem; }
+.landing-brand-lockup-footer .landing-brand-words > span { font-size: .82rem; }
+.landing-brand-lockup-footer .landing-brand-words small { margin-top: .25rem; font-size: .47rem; }
 .landing-login { display: inline-flex; align-items: center; gap: .55rem; min-height: 44px; border: 1px solid rgb(27 32 39 / .18); border-radius: 6px; padding: .55rem .85rem; font-size: .875rem; font-weight: 600; color: #1b2027; transition: background .18s, border-color .18s; }
 .landing-login:hover { border-color: #2f5d62; background: #fff; }
 .landing-hero { isolation: isolate; background: radial-gradient(circle at 80% 5%, #dce8e7 0, transparent 28%), linear-gradient(135deg, #f7f8f8 0%, #edf1f0 100%); }
@@ -102,4 +111,4 @@ button:disabled, select:disabled { cursor: not-allowed; opacity: 0.6; }
 .landing-contact-link { font-size: .95rem; font-weight: 650; color: white; text-decoration: none; }
 .landing-contact-link:hover { color: #f6e4c6; text-decoration: underline; }
 @media (min-width: 640px) { .landing-contact-item:nth-last-child(-n + 2) { border-bottom: 0; padding-bottom: 0; } }
-@media (max-width: 639px) { .landing-shell { width: min(100% - 1.25rem, 1180px); } .landing-logo-image { height: 66px; } .landing-floating-card { display: none; } }
+@media (max-width: 639px) { .landing-shell { width: min(100% - 1.25rem, 1180px); } .landing-brand-photo { height: 54px; width: 54px; background-size: 188px 104px; background-position: -7px center; } .landing-brand-words strong { font-size: .94rem; } .landing-brand-words > span { font-size: .88rem; } .landing-floating-card { display: none; } }
