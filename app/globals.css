@@ -95,5 +95,12 @@ button:disabled, select:disabled { cursor: not-allowed; opacity: 0.6; }
 .landing-capability { display: flex; gap: 1.1rem; border: 1px solid #d7dbe2; border-radius: 12px; background: white; padding: 1.5rem; transition: transform .2s, box-shadow .2s; }
 .landing-capability:hover { transform: translateY(-3px); box-shadow: 0 16px 28px rgb(20 42 53 / .08); }
 .landing-icon { display: flex; height: 46px; width: 46px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 9px; background: #e6efee; color: #2f5d62; }
-.landing-results { border: 1px solid #d7dbe2; background: white; box-shadow: 0 18px 42px rgb(20 42 53 / .06); }
+.landing-contact { border: 1px solid #d7dbe2; background: white; box-shadow: 0 18px 42px rgb(20 42 53 / .06); }
+.landing-whatsapp { display: inline-flex; min-height: 48px; align-items: center; gap: .65rem; border-radius: 5px; background: #218c57; padding: .75rem 1rem; font-size: .9rem; font-weight: 700; color: white; box-shadow: 0 9px 18px rgb(33 140 87 / .18); transition: background .18s, transform .18s; }
+.landing-whatsapp:hover { background: #176f43; transform: translateY(-1px); }
+.landing-contact-item { min-width: 0; border-bottom: 1px solid rgb(255 255 255 / .16); padding-bottom: 1.5rem; }
+.landing-contact-label { margin-top: 1.25rem; margin-bottom: .45rem; font-size: .68rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #f6e4c6; }
+.landing-contact-link { font-size: .95rem; font-weight: 650; color: white; text-decoration: none; }
+.landing-contact-link:hover { color: #f6e4c6; text-decoration: underline; }
+@media (min-width: 640px) { .landing-contact-item:nth-last-child(-n + 2) { border-bottom: 0; padding-bottom: 0; } }
 @media (max-width: 639px) { .landing-shell { width: min(100% - 1.25rem, 1180px); } .landing-floating-card { display: none; } }

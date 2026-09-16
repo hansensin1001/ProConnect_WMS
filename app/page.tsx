@@ -5,13 +5,15 @@ import {
   Boxes,
   CheckCircle2,
   ClipboardCheck,
-  Factory,
-  MapPin,
+  Clock3,
+  ExternalLink,
+  Mail,
+  MapPinned,
+  MessageCircle,
   PackageCheck,
+  Phone,
   ScanLine,
-  ShieldCheck,
   Truck,
-  UsersRound,
 } from "lucide-react";
 
 const capabilities = [
@@ -27,13 +29,6 @@ const workflow = [
   ["03", "Fulfil", "Allocate, scan, label and dispatch sales orders with a documented audit trail."],
 ];
 
-const controlFeatures = [
-  { icon: MapPin, label: "Exact locations", text: "Warehouse, zone and bin clarity" },
-  { icon: ShieldCheck, label: "Trusted controls", text: "Roles, rights and audit trails" },
-  { icon: UsersRound, label: "One shared view", text: "Organisation-aware operations" },
-  { icon: Factory, label: "Ready for scale", text: "A structured foundation for growth" },
-];
-
 export default function Home() {
   return <main className="landing-page min-h-screen overflow-hidden bg-[#f7f8f8] text-ink">
     <header className="landing-shell relative z-20 flex h-20 items-center justify-between gap-4">
@@ -44,7 +39,7 @@ export default function Home() {
       <nav className="hidden items-center gap-7 text-sm font-medium text-graphite lg:flex" aria-label="Primary navigation">
         <a href="#platform" className="transition hover:text-rack">Platform</a>
         <a href="#operations" className="transition hover:text-rack">Operations</a>
-        <a href="#results" className="transition hover:text-rack">Why ProConnect</a>
+        <a href="#contact" className="transition hover:text-rack">Contact</a>
       </nav>
       <Link href="/login" className="landing-login"><span>Client login</span><ArrowRight size={16} /></Link>
     </header>
@@ -87,8 +82,8 @@ export default function Home() {
 
     <section id="operations" className="bg-[#142a35] py-20 text-white lg:py-28"><div className="landing-shell"><div className="flex flex-col justify-between gap-7 md:flex-row md:items-end"><div><p className="landing-eyebrow text-amber-light"><span className="bg-amber" />FROM DOCK TO DOOR</p><h2 className="mt-5 max-w-2xl text-4xl font-semibold leading-tight tracking-[-0.04em] sm:text-5xl">A disciplined flow for every unit you move.</h2></div><p className="max-w-sm leading-7 text-slate-300">The platform keeps every process connected, with the checks and context operators need at the moment of action.</p></div><div className="mt-14 grid gap-5 md:grid-cols-3">{workflow.map(([number,title,text]) => <article key={number} className="rounded-xl border border-white/15 p-6"><span className="font-mono text-sm text-amber">{number}</span><h3 className="mt-8 text-2xl font-semibold">{title}</h3><p className="mt-3 leading-7 text-slate-300">{text}</p><div className="mt-7 flex h-10 w-10 items-center justify-center rounded-full border border-white/20 text-amber"><ArrowRight size={18} /></div></article>)}</div></div></section>
 
-    <section id="results" className="landing-shell py-20 lg:py-28"><div className="landing-results grid overflow-hidden rounded-2xl lg:grid-cols-[0.95fr_1.05fr]"><div className="p-8 sm:p-12"><p className="landing-eyebrow"><span />BUILT FOR CONTROL</p><h2 className="mt-5 text-4xl font-semibold leading-tight tracking-[-0.04em] sm:text-5xl">Make every stock decision with confidence.</h2><p className="mt-6 max-w-md text-lg leading-8 text-graphite">Give managers the visibility they need and give operators a faster, safer way to work.</p><Link href="/login" className="landing-cta mt-9">Sign in to ProConnect <ArrowRight size={17} /></Link></div><div className="grid content-center gap-0 bg-rack p-8 sm:grid-cols-2 sm:p-12">{controlFeatures.map(({ icon: FeatureIcon, label, text }) => <div key={label} className="border-b border-white/15 p-4 text-white sm:border-r sm:p-6"><FeatureIcon size={23} className="text-amber-light" /><h3 className="mt-8 text-lg font-semibold">{label}</h3><p className="mt-2 text-sm leading-6 text-white/70">{text}</p></div>)}</div></div></section>
+    <section id="contact" className="landing-shell py-20 lg:py-28"><div className="landing-contact grid overflow-hidden rounded-2xl lg:grid-cols-[0.84fr_1.16fr]"><div className="p-8 sm:p-12"><p className="landing-eyebrow"><span />TALK TO OUR TEAM</p><h2 className="mt-5 text-4xl font-semibold leading-tight tracking-[-0.04em] sm:text-5xl">Let’s make your warehouse easier to run.</h2><p className="mt-6 max-w-md text-lg leading-8 text-graphite">Have a question about ProConnect WMS or need help from our operations team? Contact ProConnect Express Services directly.</p><div className="mt-9 flex flex-wrap gap-3"><a href="https://wa.me/601175054245" target="_blank" rel="noreferrer" className="landing-whatsapp"><MessageCircle size={18} />Chat on WhatsApp</a><a href="mailto:petersin@proconnect-express.com" className="landing-text-cta">Email us <ArrowRight size={16} /></a></div></div><div className="bg-rack p-8 text-white sm:p-12"><div className="grid gap-7 sm:grid-cols-2"><article className="landing-contact-item"><Phone size={22} className="text-amber-light" /><p className="landing-contact-label">Phone / WhatsApp</p><a href="tel:+601175054245" className="landing-contact-link">+60 11-7505 4245</a></article><article className="landing-contact-item"><Mail size={22} className="text-amber-light" /><p className="landing-contact-label">Email</p><a href="mailto:petersin@proconnect-express.com" className="landing-contact-link break-all">petersin@proconnect-express.com</a></article><article className="landing-contact-item"><MapPinned size={22} className="text-amber-light" /><p className="landing-contact-label">Office & Waze</p><p className="leading-6 text-white/80">58-1, Persiaran Mutiara 1,<br />Bandar Tasek Mutiara,<br />14120 Simpang Ampat, Pulau Pinang</p><a href="https://waze.com/ul?q=ProConnect%20Express%20Services" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-amber-light hover:text-white">Open in Waze <ExternalLink size={14} /></a></article><article className="landing-contact-item"><Clock3 size={22} className="text-amber-light" /><p className="landing-contact-label">Operating hours</p><p className="leading-7 text-white/80">Monday – Friday<br /><strong className="font-medium text-white">10.00am – 6.00pm</strong></p><p className="mt-2 leading-7 text-white/80">Saturday<br /><strong className="font-medium text-white">10.00am – 3.00pm</strong></p></article></div></div></div></section>
 
-    <footer className="border-t border-ink/10 bg-white"><div className="landing-shell flex flex-col justify-between gap-5 py-7 text-sm text-graphite sm:flex-row sm:items-center"><div className="flex items-center gap-2 font-medium text-ink"><PackageCheck size={18} className="text-rack" />ProConnect WMS</div><p>Operational clarity for every warehouse move.</p><Link href="/login" className="font-medium text-rack hover:underline">Client login</Link></div></footer>
+    <footer className="border-t border-ink/10 bg-white"><div className="landing-shell grid gap-8 py-9 text-sm text-graphite lg:grid-cols-[1fr_auto_1fr] lg:items-center"><div className="flex items-center gap-2 font-medium text-ink"><PackageCheck size={18} className="text-rack" />ProConnect WMS</div><p className="text-center text-xs leading-6">© 2026 Proconnect Express Services (JM0993273-A). All rights reserved.</p><div className="flex flex-wrap justify-start gap-x-5 gap-y-2 lg:justify-end"><a href="https://www.proconnect-express.com/home" target="_blank" rel="noreferrer" className="font-medium text-rack hover:underline">ProConnect Express Services <ExternalLink className="ml-1 inline-block" size={13} /></a><span className="text-xs">Designed &amp; hosted by <span className="font-semibold text-ink">ProNexa Technology</span></span><Link href="/login" className="font-medium text-rack hover:underline">Client login</Link></div></div></footer>
   </main>;
 }
